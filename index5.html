@@ -182,7 +182,7 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
   opacity:0;pointer-events:none;transition:opacity .2s;}
 .mod-bg.on{opacity:1;pointer-events:all;}
 .mod{background:var(--bg2);border:1px solid var(--border);border-radius:16px;
-  padding:22px;width:420px;max-width:94vw;
+  padding:22px;width:460px;max-width:96vw;max-height:90vh;overflow-y:auto;
   transform:scale(.95);transition:transform .2s;}
 .mod-bg.on .mod{transform:scale(1);}
 .mot{font-size:15px;font-weight:700;margin-bottom:16px;}
@@ -304,7 +304,11 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
   <div class="ph">
     <div><div class="pt">가계부</div><div class="ps">가족 전체 거래 내역</div></div>
     <div style="display:flex;gap:8px;align-items:center;">
-      <select class="fs" id="led-mon" style="width:118px" onchange="loadLedger()"></select>
+      <div style="display:flex;align-items:center;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:2px;">
+        <button class="btn bs" id="mon-prev" onclick="shiftMon(-1)" style="padding:5px 10px;font-size:16px;border:none;background:transparent;">‹</button>
+        <span id="mon-label" style="font-size:13px;font-weight:600;min-width:90px;text-align:center;color:var(--text)"></span>
+        <button class="btn bs" id="mon-next" onclick="shiftMon(1)" style="padding:5px 10px;font-size:16px;border:none;background:transparent;">›</button>
+      </div>
       <button class="btn bp" onclick="openTxn()">➕ 거래 입력</button>
     </div>
   </div>
@@ -424,18 +428,22 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 <div class="mod-bg" id="mod-asset">
   <div class="mod">
     <div class="mot">🏦 자산 추가/수정</div>
-    <div class="fg">
-      <div class="fgr full"><label class="fl">자산명</label><input class="fi2" id="a-nm" placeholder="예: 국민은행 통장"></div>
-      <div class="fgr"><label class="fl">유형</label>
-        <select class="fs" id="a-type">
-          <option>예금/현금</option><option>주식/ETF</option>
-          <option>부동산</option><option>자동차</option><option>적금/보험</option><option>기타</option>
-        </select>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="fgr"><label class="fl">자산명</label><input class="fi2" id="a-nm" placeholder="예: 국민은행 통장"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="fgr"><label class="fl">유형</label>
+          <select class="fs" id="a-type">
+            <option>예금/현금</option><option>주식/ETF</option>
+            <option>부동산</option><option>자동차</option><option>적금/보험</option><option>기타</option>
+          </select>
+        </div>
+        <div class="fgr"><label class="fl">기관</label><input class="fi2" id="a-inst" placeholder="예: 국민은행"></div>
       </div>
-      <div class="fgr"><label class="fl">기관</label><input class="fi2" id="a-inst" placeholder="예: 국민은행"></div>
-      <div class="fgr"><label class="fl">현재 평가금액(원)</label><input class="fi2" type="number" id="a-val" placeholder="8500000"></div>
-      <div class="fgr"><label class="fl">취득금액(원)</label><input class="fi2" type="number" id="a-cost" placeholder="8500000"></div>
-      <div class="fgr full"><label class="fl">메모</label><input class="fi2" id="a-memo" placeholder="선택사항"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="fgr"><label class="fl">현재 평가금액 (원)</label><input class="fi2" type="number" id="a-val" placeholder="8500000"></div>
+        <div class="fgr"><label class="fl">취득금액 (원)</label><input class="fi2" type="number" id="a-cost" placeholder="8500000"></div>
+      </div>
+      <div class="fgr"><label class="fl">메모 (선택)</label><input class="fi2" id="a-memo" placeholder="선택사항"></div>
       <input type="hidden" id="a-id">
     </div>
     <div class="moa">
@@ -449,18 +457,22 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 <div class="mod-bg" id="mod-goal">
   <div class="mod">
     <div class="mot">🎯 목표 추가/수정</div>
-    <div class="fg">
-      <div class="fgr full"><label class="fl">목표명</label><input class="fi2" id="g-nm" placeholder="예: 내집마련"></div>
-      <div class="fgr"><label class="fl">유형</label>
-        <select class="fs" id="g-type">
-          <option>부동산</option><option>은퇴</option><option>자동차</option>
-          <option>여행</option><option>비상금</option><option>교육</option><option>기타</option>
-        </select>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="fgr"><label class="fl">목표명</label><input class="fi2" id="g-nm" placeholder="예: 내집마련"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="fgr"><label class="fl">유형</label>
+          <select class="fs" id="g-type">
+            <option>부동산</option><option>은퇴</option><option>자동차</option>
+            <option>여행</option><option>비상금</option><option>교육</option><option>기타</option>
+          </select>
+        </div>
+        <div class="fgr"><label class="fl">목표일</label><input class="fi2" type="date" id="g-date"></div>
       </div>
-      <div class="fgr"><label class="fl">목표일</label><input class="fi2" type="date" id="g-date"></div>
-      <div class="fgr"><label class="fl">목표금액(원)</label><input class="fi2" type="number" id="g-tgt" placeholder="500000000"></div>
-      <div class="fgr"><label class="fl">현재금액(원)</label><input class="fi2" type="number" id="g-cur" placeholder="100000000"></div>
-      <div class="fgr full"><label class="fl">월 저축 계획(원)</label><input class="fi2" type="number" id="g-mon" placeholder="1000000"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="fgr"><label class="fl">목표금액 (원)</label><input class="fi2" type="number" id="g-tgt" placeholder="500000000"></div>
+        <div class="fgr"><label class="fl">현재금액 (원)</label><input class="fi2" type="number" id="g-cur" placeholder="100000000"></div>
+      </div>
+      <div class="fgr"><label class="fl">월 저축 계획 (원)</label><input class="fi2" type="number" id="g-mon" placeholder="1000000"></div>
       <input type="hidden" id="g-id">
     </div>
     <div class="moa">
@@ -709,15 +721,24 @@ function syncMemSel() {
 // 대시보드
 // ══════════════════════════════════════
 async function loadDash() {
-  $('dash-time').textContent = URL ? '로딩 중...' : '';
   if (!URL) {
-    showWarn('Apps Script URL이 설정되지 않았습니다. ⚙️ 설정에서 URL을 입력해주세요.');
+    showWarn('⚙️ 설정에서 Apps Script URL을 입력하면 실제 데이터가 표시됩니다.');
     initMems(null);
-    renderDash({ netWorth:0, totalAssets:0, totalDebts:0, monthlyIncome:0, monthlyExpense:0,
-      savingsRate:0, categories:{}, budgets:{}, memberExpense:{}, goals:[], recentTxns:[], recentActivity:[] });
+    // URL 없으면 빈 화면 — 샘플 데이터 표시 안 함
+    $('m-nw').textContent = '—';
+    $('m-inc').textContent = '—';
+    $('m-exp').textContent = '—';
+    $('m-sv').textContent  = '—';
+    $('cat-bars').innerHTML = '<div class="empty"><div class="ei">📊</div>연결 후 표시됩니다</div>';
+    $('mem-bars').innerHTML = '';
+    $('dash-goals').innerHTML = '<div style="color:var(--muted);font-size:12px">연결 후 표시됩니다</div>';
+    $('dash-txns').innerHTML = '<div class="empty"><div class="ei">📒</div>연결 후 표시됩니다</div>';
+    $('live-feed').innerHTML = '';
+    $('dash-time').textContent = '';
     return;
   }
   clearWarn();
+  $('dash-time').textContent = '로딩 중...';
   try {
     const d = await call({ action: 'getDashboard' });
     initMems(d.members || null);
@@ -797,20 +818,41 @@ function renderDash(d) {
 // ══════════════════════════════════════
 // 가계부
 // ══════════════════════════════════════
+// 현재 선택된 연월 (YYYY-MM 형식)
+let CUR_MON = (() => {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+})();
+
 function initMonSel() {
-  const sel = $('led-mon');
-  if (!sel || sel.options.length) return;
+  updateMonLabel();
+}
+
+function updateMonLabel() {
+  const [y, m] = CUR_MON.split('-').map(Number);
+  const lbl = $('mon-label');
+  if (lbl) lbl.textContent = `${y}년 ${m}월`;
+  // 미래 달은 버튼 비활성화
   const now = new Date();
-  for (let i=0; i<12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const v = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    sel.add(new Option(`${d.getFullYear()}년 ${d.getMonth()+1}월`, v, i===0, i===0));
-  }
+  const nowYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const nxt = $('mon-next');
+  if (nxt) nxt.style.opacity = CUR_MON >= nowYM ? '0.3' : '1';
+}
+
+function shiftMon(delta) {
+  const [y, m] = CUR_MON.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  const now = new Date();
+  // 미래는 이동 불가
+  if (d > now && delta > 0) return;
+  CUR_MON = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  updateMonLabel();
+  loadLedger();
 }
 
 async function loadLedger() {
   initMonSel();
-  const mon = $('led-mon')?.value;
+  const mon = CUR_MON;
   $('led-list').innerHTML = '<div class="empty">로딩 중...</div>';
   try {
     const d = await call({ action: 'getLedger', month: mon });
@@ -1000,18 +1042,26 @@ function saveUrl() {
 }
 
 async function saveBudgets() {
-  const params = { action: 'saveSettings', member: S.me };
+  // 입력값 먼저 수집
   ECATS.forEach(c => {
     const v = document.getElementById(`bgt-${c}`)?.value;
-    if (v) { params[`budget_${c}`] = v; S.budgets[c] = Number(v); }
+    if (v !== undefined && v !== '') S.budgets[c] = Number(v);
   });
-  try {
-    await call(params);
-    localStorage.setItem(BK, JSON.stringify(S.budgets));
-    toast('✅ 예산 저장됐습니다!');
-  } catch(e) {
-    localStorage.setItem(BK, JSON.stringify(S.budgets));
-    toast('로컬 저장됐습니다 (Sheets 미연결)');
+  // localStorage에 즉시 저장 (항상)
+  localStorage.setItem(BK, JSON.stringify(S.budgets));
+
+  // Sheets에도 저장 시도
+  if (URL) {
+    const params = { action: 'saveSettings', member: S.me };
+    ECATS.forEach(c => { if (S.budgets[c]) params[`budget_${c}`] = S.budgets[c]; });
+    try {
+      await call(params);
+      toast('✅ 예산 저장됐습니다!');
+    } catch(e) {
+      toast('✅ 로컬 저장됐습니다 (Sheets 동기화 실패)');
+    }
+  } else {
+    toast('✅ 예산이 저장됐습니다!');
   }
 }
 
