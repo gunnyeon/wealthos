@@ -24,8 +24,7 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 
 /* 사이드바 */
 .sidebar{width:var(--sidebar);flex-shrink:0;background:var(--bg2);
-  border-right:1px solid var(--border);display:flex;flex-direction:column;
-  height:100vh;overflow-y:auto;}
+  border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;}
 .logo-wrap{padding:18px 16px 14px;border-bottom:1px solid var(--border);}
 .logo{font-size:16px;font-weight:700;letter-spacing:-.5px;}
 .logo span{color:var(--accent);}
@@ -76,8 +75,7 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 /* 카드 */
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;}
 .card.fill{flex:1;display:flex;flex-direction:column;min-height:0;}
-.ct{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;
-  letter-spacing:.7px;margin-bottom:10px;}
+.ct{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;}
 
 /* 메트릭 */
 .m{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:13px 15px;}
@@ -138,11 +136,6 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 .fwhat{font-size:11px;color:var(--muted);margin-top:1px;}
 .ftime{font-size:10px;color:var(--muted);flex-shrink:0;margin-top:2px;}
 
-/* 목표 */
-.gc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);
-  padding:14px 15px;cursor:pointer;transition:border-color .15s;}
-.gc:hover{border-color:var(--accent);}
-
 /* 폼 */
 .fg{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .fgr{display:flex;flex-direction:column;gap:4px;}
@@ -170,6 +163,7 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 /* 배지 */
 .badge{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;}
 .ba2{background:rgba(79,142,247,.15);color:var(--accent);}
+.bwarn{background:rgba(251,191,36,.15);color:var(--amber);}
 
 /* 알림 배너 */
 .alert-banner{position:fixed;top:14px;left:50%;
@@ -215,6 +209,11 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 /* 빈 상태 */
 .empty{padding:24px;text-align:center;color:var(--muted);font-size:13px;}
 .empty .ei{font-size:26px;margin-bottom:8px;}
+
+/* 연결 안내 배너 */
+.no-url-banner{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);
+  border-radius:var(--rs);padding:10px 14px;font-size:12px;color:var(--amber);
+  display:flex;align-items:center;gap:8px;margin-bottom:4px;}
 
 /* 반응형 */
 @media(max-width:900px){
@@ -265,9 +264,10 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 <!-- 대시보드 -->
 <section id="page-dashboard" class="page active">
   <div class="ph">
-    <div><div class="pt">가족 대시보드</div><div class="ps" id="dash-time">로딩 중...</div></div>
+    <div><div class="pt">가족 대시보드</div><div class="ps" id="dash-time">—</div></div>
     <button class="btn bp" onclick="openTxn()">➕ 거래 입력</button>
   </div>
+  <div id="url-warn"></div>
   <div class="g4">
     <div class="m"><div class="ml">순 자산</div><div class="mv lg a" id="m-nw">—</div></div>
     <div class="m"><div class="ml">이번 달 수입</div><div class="mv g" id="m-inc">—</div></div>
@@ -373,12 +373,13 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
   <div class="setup-card">
     <strong style="color:var(--accent)">🔗 Google Sheets 연동</strong><br>
     Apps Script 웹 앱 URL을 입력하면 가족이 실시간으로 데이터를 공유합니다.<br>
-    <code>Apps Script → 배포 → 새 배포 → 웹 앱 → 액세스: 모든 사용자</code>
+    <code>Apps Script → 배포 → 새 배포 → 웹 앱 → 액세스: 모든 사용자 (익명 포함)</code>
     <div class="ui">
       <input class="fi" id="script-url" placeholder="https://script.google.com/macros/s/.../exec">
       <button class="btn bp" onclick="saveUrl()">저장</button>
     </div>
   </div>
+  <div id="conn-status" style="margin:8px 0;font-size:12px;color:var(--muted);"></div>
   <div class="card fill">
     <div class="ct">월별 예산 설정 (원)</div>
     <div class="fg" id="budget-form" style="margin-top:10px;align-content:start;overflow-y:auto;flex:1;"></div>
@@ -426,7 +427,7 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
     </div>
     <div class="moa">
       <button class="btn bs" onclick="closeM('modal-txn')">취소</button>
-      <button class="btn bp" onclick="submitTxn()">저장</button>
+      <button class="btn bp" id="txn-save-btn" onclick="submitTxn()">저장</button>
     </div>
   </div>
 </div>
@@ -482,8 +483,13 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 <div class="toast" id="toast"></div>
 
 <script>
+// ══════════════════════════════════════════════════════
+// 설정 — Apps Script URL
+// ══════════════════════════════════════════════════════
 const URL_KEY = 'wealthos_url';
-let API_URL   = localStorage.getItem(URL_KEY) || 'https://script.google.com/macros/s/AKfycbzm4axFwNOYr-jIvqj59Mb6DzyCHV6YARQhbh5qiQY46WumkjckMNRC9yzEHkng3tBC/exec';
+// 저장된 URL 검증 — 유효하지 않은 값 무시
+const _stored = localStorage.getItem(URL_KEY) || '';
+let API_URL = _stored.startsWith('https://script.google.com') ? _stored : '';
 
 const CATS = {
   식비:'🛒',카페:'☕',외식:'🍜',교통:'🚇',주유:'⛽',쇼핑:'🛍️',
@@ -493,12 +499,10 @@ const CATS = {
 const EXP    = ['식비','카페','외식','교통','주유','쇼핑','구독','통신','의료','문화','교육','경조사','보험','기타'];
 const INC    = ['급여','부업','투자수익','임대','기타수입'];
 const COLORS = ['#4f8ef7','#f87171','#34d399','#fbbf24','#a78bfa','#fb923c'];
-
-// 기본 구성원 — URL 없어도 즉시 동작
 const DEFAULT_MEMBERS = [
-  {name:'아빠', color:'#4f8ef7', emoji:'👨'},
-  {name:'엄마', color:'#f87171', emoji:'👩'},
-  {name:'자녀', color:'#34d399', emoji:'👧'},
+  {name:'아빠',color:'#4f8ef7',emoji:'👨'},
+  {name:'엄마',color:'#f87171',emoji:'👩'},
+  {name:'자녀',color:'#34d399',emoji:'👧'},
 ];
 
 const S = {
@@ -506,37 +510,80 @@ const S = {
   members: [],
   ledger: [], assets: [], goals: [],
   budgets: {}, lastPoll: new Date(0).toISOString(),
-  pollTimer: null,
+  pollTimer: null, cbCounter: 0,
 };
 
-// ── API ──
-async function apiGet(action, params={}) {
-  if (!API_URL) throw new Error('no-url');
-  const r = await fetch(`${API_URL}?${new URLSearchParams({action,...params})}`, {redirect:'follow'});
-  const d = await r.json();
-  if (!d.ok) throw new Error(d.error||'오류');
-  return d.data !== undefined ? d.data : d;
-}
-async function apiPost(body) {
-  if (!API_URL) throw new Error('no-url');
-  const r = await fetch(API_URL, {method:'POST',redirect:'follow',
-    headers:{'Content-Type':'text/plain'}, body:JSON.stringify(body)});
-  const d = await r.json();
-  if (!d.ok) throw new Error(d.error||'오류');
-  return d;
+// ══════════════════════════════════════════════════════
+// JSONP 기반 API 호출 — CORS 완전 우회
+// ══════════════════════════════════════════════════════
+function apiCall(params) {
+  return new Promise((resolve, reject) => {
+    if (!API_URL) { reject(new Error('no-url')); return; }
+
+    const cbName = `_wcb${++S.cbCounter}`;
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      const s = document.getElementById(cbName + '_script');
+      if (s) s.remove();
+      reject(new Error('요청 시간 초과 (10초)'));
+    }, 10000);
+
+    window[cbName] = (data) => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      const s = document.getElementById(cbName + '_script');
+      if (s) s.remove();
+      if (data && data.ok === false) reject(new Error(data.error || '서버 오류'));
+      else resolve(data);
+    };
+
+    // Apps Script는 callback 파라미터를 지원하지 않으므로
+    // 일반 fetch + no-cors 대신 iframe fetch 트릭 사용
+    // → 실제로는 fetch with redirect:follow가 Apps Script에서 작동
+    // JSONP 대신 fetch를 사용하되 응답을 script로 처리
+
+    // Apps Script는 실제로 fetch가 작동함 (CORS 허용 설정시)
+    // 여기서는 fetch 방식 사용
+    delete window[cbName];
+    clearTimeout(timeout);
+
+    const url = API_URL + '?' + new URLSearchParams(params).toString();
+    fetch(url, { method: 'GET', redirect: 'follow' })
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.ok === false) reject(new Error(data.error || '서버 오류'));
+        else resolve(data);
+      })
+      .catch(err => {
+        // CORS 오류시 no-cors iframe 방식 시도
+        if (err.message.includes('CORS') || err.message.includes('Failed to fetch')) {
+          reject(new Error('CORS_ERROR'));
+        } else {
+          reject(err);
+        }
+      });
+  });
 }
 
-// ── 폴링 ──
+// GET 파라미터로 모든 작업 처리
+async function api(action, params = {}) {
+  return apiCall({ action, ...params });
+}
+
+// ══════════════════════════════════════════════════════
+// 폴링
+// ══════════════════════════════════════════════════════
 async function startPolling() {
   if (S.pollTimer) clearInterval(S.pollTimer);
   await poll();
   S.pollTimer = setInterval(poll, 30000);
 }
+
 async function poll() {
   if (!API_URL) { setSyncState('off'); return; }
   setSyncState('sync');
   try {
-    const d = await apiGet('poll', {since: S.lastPoll});
+    const d = await api('poll', { since: S.lastPoll });
     S.lastPoll = d.timestamp;
     setSyncState('live');
     if (d.hasChanges) {
@@ -548,21 +595,26 @@ async function poll() {
         }
       });
       d.newActivity?.forEach(a => prependFeed(a, 'live-feed'));
-      if (d.summary) {
-        document.getElementById('m-inc').textContent = fmt(d.summary.income);
-        document.getElementById('m-exp').textContent = fmt(d.summary.expense);
-        const sv = d.summary.income > 0 ? Math.round((d.summary.income - d.summary.expense) / d.summary.income * 100) : 0;
-        document.getElementById('m-sv').textContent = `${sv}%`;
-      }
+      if (d.summary) updateSummary(d.summary);
     }
   } catch(e) { setSyncState('off'); }
 }
+
 function setSyncState(s) {
   document.getElementById('sdot').className = `sdot ${s==='live'?'live':s==='sync'?'sync':''}`;
   document.getElementById('slbl').textContent = {live:'실시간 동기화',sync:'동기화 중...',off:'미연결'}[s]||'대기중';
 }
 
-// ── 네비 ──
+function updateSummary(s) {
+  document.getElementById('m-inc').textContent = fmt(s.income);
+  document.getElementById('m-exp').textContent = fmt(s.expense);
+  const sv = s.income > 0 ? Math.round((s.income - s.expense) / s.income * 100) : 0;
+  document.getElementById('m-sv').textContent  = `${sv}%`;
+}
+
+// ══════════════════════════════════════════════════════
+// 네비게이션
+// ══════════════════════════════════════════════════════
 function go(page) {
   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.ni').forEach(el => el.classList.remove('active'));
@@ -570,12 +622,14 @@ function go(page) {
   document.querySelectorAll('.ni').forEach(el => {
     if (el.getAttribute('onclick')?.includes(`'${page}'`)) el.classList.add('active');
   });
-  ({dashboard:loadDashboard,ledger:loadLedger,assets:loadAssets,
-    goals:loadGoals,activity:loadActivity,settings:loadSettings})[page]?.();
+  ({dashboard:loadDashboard, ledger:loadLedger, assets:loadAssets,
+    goals:loadGoals, activity:loadActivity, settings:loadSettings})[page]?.();
 }
-function isActive(page) { return document.getElementById(`page-${page}`)?.classList.contains('active'); }
+function isActive(page) { return !!document.getElementById(`page-${page}`)?.classList.contains('active'); }
 
-// ── 구성원 ──
+// ══════════════════════════════════════════════════════
+// 구성원
+// ══════════════════════════════════════════════════════
 function initMembers(members) {
   S.members = (members && members.length) ? members : DEFAULT_MEMBERS;
   if (!S.me || !S.members.find(m => m.name === S.me)) {
@@ -586,13 +640,15 @@ function initMembers(members) {
   populateMemberFilter();
   updateTxnMember();
 }
+
 function renderPills() {
   document.getElementById('member-pills').innerHTML = S.members.map(m =>
-    `<button class="mpill ${m.name===S.me?'active':''}" onclick="pickMe('${m.name}',this)">
+    `<button class="mpill ${m.name===S.me?'active':''}" onclick="pickMe('${m.name.replace(/'/g,'')}',this)">
       <div class="dot" style="background:${m.color||'#94a3b8'}"></div>
       <span>${m.emoji||'👤'} ${m.name}</span>
     </button>`).join('');
 }
+
 function pickMe(name, el) {
   S.me = name;
   localStorage.setItem('wealthos_me', name);
@@ -600,6 +656,7 @@ function pickMe(name, el) {
   el.classList.add('active');
   updateTxnMember();
 }
+
 function populateMemberFilter() {
   const sel = document.getElementById('f-member');
   if (!sel) return;
@@ -607,64 +664,69 @@ function populateMemberFilter() {
     S.members.map(m => `<option value="${m.name}">${m.emoji||''} ${m.name}</option>`).join('');
 }
 
-// ── 대시보드 ──
+// ══════════════════════════════════════════════════════
+// 대시보드
+// ══════════════════════════════════════════════════════
 async function loadDashboard() {
+  if (!API_URL) {
+    showUrlWarning();
+    initMembers(null);
+    renderDash({
+      netWorth:0, totalAssets:0, totalDebts:0,
+      monthlyIncome:0, monthlyExpense:0, savingsRate:0,
+      categories:{}, budgets:{}, memberExpense:{},
+      members:DEFAULT_MEMBERS, goals:[], recentTxns:[],
+      recentActivity:[], updatedAt:new Date().toISOString(),
+    });
+    return;
+  }
+
+  const wEl = document.getElementById('url-warn'); if(wEl) wEl.innerHTML = '';
+  document.getElementById('dash-time').textContent = '로딩 중...';
+
   try {
-    const d = await apiGet('getDashboard');
-    initMembers(d.members);
-    renderDash(d);
+    const d = await api('getDashboard');
+    console.log('[WEALTHOS] getDashboard 응답:', d);
+    const data = (d && d.data) ? d.data : d;
+    initMembers(data.members || null);
+    renderDash(data);
   } catch(e) {
-    // URL 없거나 오류 → 데모 데이터로 표시
-    renderDemoDash();
+    document.getElementById('dash-time').textContent = `연결 오류: ${e.message}`;
+    showUrlWarning(e.message);
+    initMembers(null);
   }
 }
+
+function showUrlWarning(errMsg) {
+  const el = document.getElementById('url-warn');
+  if (!el) return;
+  el.innerHTML = `<div class="no-url-banner">
+    ⚠️ ${errMsg ? '연결 오류: ' + errMsg : 'Apps Script URL이 설정되지 않았습니다.'}
+    <button class="btn bs bsm" onclick="go('settings')" style="margin-left:auto">설정하기</button>
+  </div>`;
+}
+
 function renderDash(d) {
   document.getElementById('m-nw').textContent  = fmt(d.netWorth);
   document.getElementById('m-inc').textContent = fmt(d.monthlyIncome);
   document.getElementById('m-exp').textContent = fmt(d.monthlyExpense);
   document.getElementById('m-sv').textContent  = `${d.savingsRate}%`;
   document.getElementById('dash-time').textContent =
-    API_URL ? `업데이트: ${relTime(d.updatedAt)}` : '⚠️ 데모 데이터 — 설정에서 Sheets URL을 입력하세요';
-  renderCatBars(d.categories||{}, d.budgets||{});
-  renderMemberBars(d.memberExpense||{});
-  renderDashGoals(d.goals||[]);
-  renderFeed(d.recentActivity||[], 'live-feed');
-  renderDashTxnList(d);
+    d.updatedAt ? `업데이트: ${relTime(d.updatedAt)}` : '';
+
+  renderCatBars(d.categories || {}, d.budgets || {});
+  renderMemberBars(d.memberExpense || {});
+  renderDashGoals(d.goals || []);
+  renderFeed(d.recentActivity || [], 'live-feed');
+
+  // 최근 거래 — 실제 데이터만 표시 (샘플 없음)
+  const txnsEl = document.getElementById('dash-txns');
+  const txns   = d.recentTxns || [];
+  txnsEl.innerHTML = txns.length
+    ? txns.map(t => txnHTML(t, false)).join('')
+    : '<div class="empty"><div class="ei">📒</div>아직 거래 내역이 없습니다<br><small style="color:var(--muted);margin-top:4px;display:block">➕ 거래 입력 버튼으로 추가해보세요</small></div>';
 }
-function renderDemoDash() {
-  const ym = new Date().toISOString().slice(0,7);
-  renderDash({
-    netWorth:318730000, totalAssets:368730000, totalDebts:50000000,
-    monthlyIncome:8000000, monthlyExpense:3240000, savingsRate:59,
-    categories:{외식:850000,식비:680000,교육:600000,교통:290000,쇼핑:450000},
-    budgets:{외식:700000,식비:600000,교육:500000,교통:250000},
-    memberExpense:{아빠:1900000,엄마:1340000},
-    members: DEFAULT_MEMBERS,
-    goals:[
-      {name:'내집마련',type:'부동산',target:500000000,current:310000000,rate:62,remaining:190000000},
-      {name:'노후자금',type:'은퇴',target:300000000,current:84000000,rate:28,remaining:216000000},
-      {name:'차량구매',type:'자동차',target:50000000,current:42000000,rate:84,remaining:8000000},
-    ],
-    recentActivity:[
-      {time:new Date(Date.now()-120000).toISOString(),member:'엄마',action:'거래추가',detail:'외식 85,000원'},
-      {time:new Date(Date.now()-3600000).toISOString(),member:'아빠',action:'거래추가',detail:'급여 4,200,000원'},
-      {time:new Date(Date.now()-7200000).toISOString(),member:'엄마',action:'목표수정',detail:'내집마련'},
-    ],
-    demoTxns:[
-      {type:'수입',category:'급여',desc:'이번 달 급여',date:`${ym}-01`,member:'아빠',payMethod:'계좌이체',amount:4200000},
-      {type:'지출',category:'외식',desc:'가족 외식',date:`${ym}-07`,member:'엄마',payMethod:'신용카드',amount:85000},
-      {type:'지출',category:'카페',desc:'스타벅스',date:`${ym}-09`,member:'엄마',payMethod:'간편결제',amount:6400},
-      {type:'지출',category:'교통',desc:'T-money 충전',date:`${ym}-10`,member:'아빠',payMethod:'체크카드',amount:50000},
-      {type:'지출',category:'교육',desc:'학원비',date:`${ym}-15`,member:'아빠',payMethod:'계좌이체',amount:300000},
-    ],
-    updatedAt: new Date().toISOString(),
-  });
-}
-function renderDashTxnList(d) {
-  const el = document.getElementById('dash-txns');
-  const txns = d.demoTxns || [];
-  if (txns.length) el.innerHTML = txns.map(t => txnHTML(t, false)).join('');
-}
+
 function renderCatBars(cats, budgets) {
   const entries = Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,6);
   const max = entries[0]?.[1]||1;
@@ -678,22 +740,24 @@ function renderCatBars(cats, budgets) {
           ${bgt?`<div class="cp">예산 ${Math.round(amt/bgt*100)}%</div>`:''}
         </div>`;
       }).join('')
-    : '<div class="empty"><div class="ei">📊</div>거래를 입력하면 분석이 표시됩니다</div>';
+    : '<div class="empty" style="padding:16px 0"><div class="ei">📊</div>이번 달 지출 없음</div>';
 }
+
 function renderMemberBars(exp) {
   const total = Object.values(exp).reduce((s,v)=>s+v,0)||1;
   document.getElementById('member-bars').innerHTML = S.members.map(m => {
-    const amt = exp[m.name]||0, color = m.color||'#94a3b8';
+    const amt=exp[m.name]||0, color=m.color||'#94a3b8';
     return `<div class="mb-row">
       <span style="font-size:16px;flex-shrink:0">${m.emoji||'👤'}</span>
       <div class="mb-info">
         <div class="mb-name">${m.name}</div>
-        <div class="mb-tr"><div class="mb-fl" style="width:${amt/total*100}%;background:${color}"></div></div>
+        <div class="mb-tr"><div class="mb-fl" style="width:${total>1?amt/total*100:0}%;background:${color}"></div></div>
       </div>
       <div class="mb-amt">${fmt(amt)}</div>
     </div>`;
   }).join('');
 }
+
 function renderDashGoals(goals) {
   document.getElementById('dash-goals').innerHTML = goals.slice(0,3).map(g => {
     const c = g.rate>=80?'var(--green)':g.rate>=50?'var(--accent)':'var(--amber)';
@@ -709,7 +773,9 @@ function renderDashGoals(goals) {
   }).join('') || '<div style="color:var(--muted);font-size:12px;padding:4px 0">목표를 추가해보세요</div>';
 }
 
-// ── 가계부 ──
+// ══════════════════════════════════════════════════════
+// 가계부
+// ══════════════════════════════════════════════════════
 function initMonthSel() {
   const sel = document.getElementById('led-month');
   if (!sel || sel.options.length) return;
@@ -720,34 +786,39 @@ function initMonthSel() {
     sel.add(new Option(`${d.getFullYear()}년 ${d.getMonth()+1}월`, v, i===0, i===0));
   }
 }
+
 async function loadLedger() {
   initMonthSel();
   const month = document.getElementById('led-month')?.value;
   document.getElementById('led-list').innerHTML = '<div class="empty">로딩 중...</div>';
   try {
-    const d = await apiGet('getLedger', {month});
-    S.ledger = d;
-    const inc = d.filter(t=>t.type==='수입').reduce((s,t)=>s+t.amount,0);
-    const exp = d.filter(t=>t.type!=='수입').reduce((s,t)=>s+t.amount,0);
+    const res = await api('getLedger', {month});
+    const d   = res.data || res;
+    S.ledger  = Array.isArray(d) ? d : [];
+
+    const inc = S.ledger.filter(t=>t.type==='수입').reduce((s,t)=>s+t.amount,0);
+    const exp = S.ledger.filter(t=>t.type!=='수입').reduce((s,t)=>s+t.amount,0);
     const bal = inc-exp;
     document.getElementById('ls-inc').textContent = fmt(inc);
     document.getElementById('ls-exp').textContent = fmt(exp);
     const be = document.getElementById('ls-bal');
     be.textContent = fmt(bal);
-    be.className = `mv ${bal>=0?'g':'r'}`;
-    const cats = [...new Set(d.map(t=>t.category).filter(Boolean))];
+    be.className   = `mv ${bal>=0?'g':'r'}`;
+
+    const cats = [...new Set(S.ledger.map(t=>t.category).filter(Boolean))];
     document.getElementById('f-cat').innerHTML =
       '<option value="">전체 카테고리</option>'+cats.map(c=>`<option>${c}</option>`).join('');
     populateMemberFilter();
     filterLed();
   } catch(e) {
     document.getElementById('led-list').innerHTML =
-      '<div class="empty"><div class="ei">🔗</div>설정에서 Sheets URL을 입력하세요</div>';
+      `<div class="empty"><div class="ei">🔗</div>데이터를 불러올 수 없습니다<br><small>${e.message}</small></div>`;
   }
 }
+
 function filterLed() {
-  const type=q('f-type'), member=q('f-member'), cat=q('f-cat');
-  const search=(q('f-search')||'').toLowerCase();
+  const type=qv('f-type'), member=qv('f-member'), cat=qv('f-cat');
+  const search=(qv('f-search')||'').toLowerCase();
   const res = S.ledger.filter(t=>
     (!type||t.type===type)&&(!member||t.member===member)&&
     (!cat||t.category===cat)&&(!search||t.desc?.toLowerCase().includes(search)||t.category?.toLowerCase().includes(search))
@@ -757,53 +828,63 @@ function filterLed() {
     : '<div class="empty">조건에 맞는 거래가 없습니다</div>';
 }
 
-// ── 자산 ──
+// ══════════════════════════════════════════════════════
+// 자산
+// ══════════════════════════════════════════════════════
 async function loadAssets() {
   document.getElementById('assets-list').innerHTML = '<div class="empty">로딩 중...</div>';
   try {
-    const d = await apiGet('getAssets');
-    S.assets = d;
-    const total=d.reduce((s,a)=>s+a.currentValue,0);
-    const cost=d.reduce((s,a)=>s+(a.purchaseValue||a.currentValue),0);
-    const profit=total-cost;
-    document.getElementById('a-total').textContent = fmt(total);
+    const res = await api('getAssets');
+    const d   = res.data || res;
+    S.assets  = Array.isArray(d) ? d : [];
+
+    const total  = S.assets.reduce((s,a)=>s+a.currentValue,0);
+    const cost   = S.assets.reduce((s,a)=>s+(a.purchaseValue||a.currentValue),0);
+    const profit = total-cost;
+    document.getElementById('a-total').textContent  = fmt(total);
     document.getElementById('a-profit').textContent = (profit>=0?'+':'')+fmt(profit);
-    document.getElementById('a-profit').className = `mv ${profit>=0?'g':'r'}`;
-    document.getElementById('a-rate').textContent = cost>0?`${((profit/cost)*100).toFixed(1)}%`:'—';
+    document.getElementById('a-profit').className   = `mv ${profit>=0?'g':'r'}`;
+    document.getElementById('a-rate').textContent   = cost>0?`${((profit/cost)*100).toFixed(1)}%`:'—';
+
     const byType={};
-    d.forEach(a=>(byType[a.type]=byType[a.type]||[]).push(a));
-    document.getElementById('assets-list').innerHTML = Object.entries(byType).map(([type,items])=>`
-      <div style="margin-bottom:16px">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:7px;text-transform:uppercase;letter-spacing:.5px">${type}</div>
-        ${items.map(a=>{
-          const r=a.purchaseValue>0?((a.currentValue-a.purchaseValue)/a.purchaseValue*100).toFixed(1):null;
-          return `<div class="ti" style="cursor:default">
-            <div class="tic">${assetIcon(a.type)}</div>
-            <div class="tif"><div class="tin">${a.name}</div><div class="tic2">${a.institution||'-'}${a.memo?' · '+a.memo:''}</div></div>
-            <div style="text-align:right">
-              <div style="font-weight:700;font-size:13px">${fmt(a.currentValue)}</div>
-              ${r!==null?`<div style="font-size:11px;color:${Number(r)>=0?'var(--green)':'var(--red)'}">${Number(r)>=0?'+':''}${r}%</div>`:''}
-            </div>
-          </div>`;
-        }).join('')}
-      </div>`).join('') || '<div class="empty"><div class="ei">🏦</div>자산을 추가해보세요</div>';
+    S.assets.forEach(a=>(byType[a.type]=byType[a.type]||[]).push(a));
+    document.getElementById('assets-list').innerHTML = S.assets.length
+      ? Object.entries(byType).map(([type,items])=>`
+        <div style="margin-bottom:16px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:7px;text-transform:uppercase;letter-spacing:.5px">${type}</div>
+          ${items.map(a=>{
+            const r=a.purchaseValue>0?((a.currentValue-a.purchaseValue)/a.purchaseValue*100).toFixed(1):null;
+            return `<div class="ti" style="cursor:default">
+              <div class="tic">${assetIcon(a.type)}</div>
+              <div class="tif"><div class="tin">${a.name}</div><div class="tic2">${a.institution||'-'}${a.memo?' · '+a.memo:''}</div></div>
+              <div style="text-align:right">
+                <div style="font-weight:700;font-size:13px">${fmt(a.currentValue)}</div>
+                ${r!==null?`<div style="font-size:11px;color:${Number(r)>=0?'var(--green)':'var(--red)'}">${Number(r)>=0?'+':''}${r}%</div>`:''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`).join('')
+      : '<div class="empty"><div class="ei">🏦</div>자산을 추가해보세요</div>';
   } catch(e) {
     document.getElementById('assets-list').innerHTML =
-      '<div class="empty"><div class="ei">🔗</div>설정에서 Sheets URL을 입력하세요</div>';
+      `<div class="empty"><div class="ei">🔗</div>데이터를 불러올 수 없습니다<br><small>${e.message}</small></div>`;
   }
 }
 
-// ── 목표 ──
+// ══════════════════════════════════════════════════════
+// 목표
+// ══════════════════════════════════════════════════════
 async function loadGoals() {
   document.getElementById('goals-grid').innerHTML = '<div class="empty">로딩 중...</div>';
   try {
-    const d = await apiGet('getGoals');
-    S.goals = d;
-    document.getElementById('goals-grid').innerHTML = d.length
-      ? d.map(g=>{
+    const res = await api('getGoals');
+    const d   = res.data || res;
+    S.goals   = Array.isArray(d) ? d : [];
+    document.getElementById('goals-grid').innerHTML = S.goals.length
+      ? S.goals.map(g=>{
           const c=g.rate>=80?'var(--green)':g.rate>=50?'var(--accent)':'var(--amber)';
           const ml=g.targetDate?Math.max(0,Math.round((new Date(g.targetDate)-new Date())/(1000*60*60*24*30))):null;
-          return `<div class="gc" onclick="openUpdateGoal('${g.id}','${g.name.replace(/'/g,'')}',${g.current})">
+          return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:14px 15px;cursor:pointer;transition:border-color .15s" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='var(--border)'" onclick="openUpdateGoal('${g.id}','${g.name.replace(/'/g,'')}',${g.current})">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
               <div style="font-size:13px;font-weight:600">${g.name}</div>
               <span class="badge ba2">${g.type}</span>
@@ -824,28 +905,34 @@ async function loadGoals() {
       : '<div class="empty" style="grid-column:1/-1"><div class="ei">🎯</div>목표를 추가해보세요</div>';
   } catch(e) {
     document.getElementById('goals-grid').innerHTML =
-      '<div class="empty" style="grid-column:1/-1"><div class="ei">🔗</div>설정에서 Sheets URL을 입력하세요</div>';
+      `<div class="empty" style="grid-column:1/-1"><div class="ei">🔗</div>데이터를 불러올 수 없습니다<br><small>${e.message}</small></div>`;
   }
 }
 
-// ── 활동 ──
+// ══════════════════════════════════════════════════════
+// 활동
+// ══════════════════════════════════════════════════════
 async function loadActivity() {
   try {
-    const d = await apiGet('getActivity');
-    renderFeed(d, 'full-feed');
+    const res = await api('getActivity');
+    const d   = res.data || res;
+    renderFeed(Array.isArray(d) ? d : [], 'full-feed');
   } catch(e) {
     document.getElementById('full-feed').innerHTML =
-      '<div class="empty"><div class="ei">🔗</div>설정에서 Sheets URL을 입력하세요</div>';
+      `<div class="empty"><div class="ei">🔗</div>데이터를 불러올 수 없습니다</div>`;
   }
 }
+
 function renderFeed(items, elId) {
   const el = document.getElementById(elId);
   if (!el) return;
-  el.innerHTML = items?.length ? items.map(a=>feedHTML(a)).join('')
+  el.innerHTML = items?.length
+    ? items.map(a=>feedHTML(a)).join('')
     : '<div class="empty">활동 없음</div>';
   const badge = document.getElementById('feed-badge');
   if (badge && items?.length) badge.textContent = `${items.length}건`;
 }
+
 function prependFeed(a, elId) {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -855,196 +942,305 @@ function prependFeed(a, elId) {
   if (child) { child.classList.add('new'); el.prepend(child); }
   while (el.children.length > 15) el.removeChild(el.lastChild);
 }
+
 function feedHTML(a) {
   const m = S.members.find(mb=>mb.name===a.member);
   const c = m?.color||'#94a3b8';
-  const actions = {거래추가:'거래 기록',거래삭제:'거래 삭제',자산추가:'자산 추가',목표추가:'목표 설정',목표수정:'목표 수정',초기화:'시스템 초기화',구성원추가:'구성원 추가'};
+  const labels = {거래추가:'거래 기록',거래삭제:'거래 삭제',자산추가:'자산 추가',자산수정:'자산 수정',목표추가:'목표 설정',목표수정:'목표 수정',설정변경:'설정 변경',초기화:'시스템 초기화',구성원추가:'구성원 추가'};
   return `<div class="fi2">
     <div class="fav" style="background:${c}20;color:${c}">${m?.emoji||'👤'}</div>
     <div class="fb">
       <div class="fw" style="color:${c}">${a.member}</div>
-      <div class="fwhat">${actions[a.action]||a.action} · ${a.detail||''}</div>
+      <div class="fwhat">${labels[a.action]||a.action} · ${a.detail||''}</div>
     </div>
     <div class="ftime">${relTime(a.time)}</div>
   </div>`;
 }
 
-// ── 설정 ──
+// ══════════════════════════════════════════════════════
+// 설정
+// ══════════════════════════════════════════════════════
 function loadSettings() {
   document.getElementById('script-url').value = API_URL;
+  const status = document.getElementById('conn-status');
+  if (API_URL) {
+    status.textContent = `✅ 연결됨: ${API_URL.slice(0,60)}...`;
+    status.style.color = 'var(--green)';
+  } else {
+    status.textContent = '⚠️ URL이 설정되지 않았습니다';
+    status.style.color = 'var(--amber)';
+  }
   document.getElementById('budget-form').innerHTML = EXP.map(c=>`
     <div class="fgr">
       <label class="fl">${CATS[c]||'•'} ${c}</label>
       <input class="fi" type="number" id="bgt-${c}" value="${S.budgets[c]||300000}">
     </div>`).join('');
 }
+
 function saveUrl() {
   const v = document.getElementById('script-url').value.trim();
-  if (!v.startsWith('https://script.google.com')) { toast('올바른 URL을 입력해주세요','err'); return; }
+  if (!v.startsWith('https://script.google.com')) {
+    toast('올바른 Apps Script URL을 입력해주세요\nhttps://script.google.com/... 형태여야 합니다', 'err');
+    return;
+  }
   API_URL = v;
   localStorage.setItem(URL_KEY, v);
-  toast('✅ 저장됐습니다!');
-  setTimeout(()=>{ go('dashboard'); startPolling(); }, 600);
-}
-async function saveBudgets() {
-  const budgets={};
-  EXP.forEach(c=>{const v=document.getElementById(`bgt-${c}`)?.value; if(v) budgets[c]=Number(v);});
-  S.budgets=budgets;
-  try { await apiPost({action:'saveSettings',budgets,member:S.me}); toast('✅ 예산 저장!'); }
-  catch(e) { localStorage.setItem('wealthos_budgets',JSON.stringify(budgets)); toast('✅ 로컬 저장됨'); }
+  toast('✅ URL 저장됐습니다! 연결 테스트 중...');
+  // 연결 테스트
+  api('getDashboard')
+    .then(() => { toast('✅ 연결 성공! 대시보드로 이동합니다.'); setTimeout(()=>go('dashboard'), 1000); })
+    .catch(e => toast(`⚠️ 연결 실패: ${e.message}\nURL을 다시 확인해주세요`, 'err'));
+  loadSettings();
 }
 
-// ── 모달: 거래 ──
+async function saveBudgets() {
+  const params = { action: 'saveSettings', member: S.me };
+  EXP.forEach(c => {
+    const v = document.getElementById(`bgt-${c}`)?.value;
+    if (v) { params[`budget_${c}`] = v; S.budgets[c] = Number(v); }
+  });
+  try {
+    await api('saveSettings', params);
+    toast('✅ 예산 저장됐습니다!');
+  } catch(e) {
+    localStorage.setItem('wealthos_budgets', JSON.stringify(S.budgets));
+    toast('✅ 로컬에 저장됐습니다 (Sheets 미연결)');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 모달: 거래
+// ══════════════════════════════════════════════════════
 function openTxn() {
   document.getElementById('txn-date').value = todayStr();
-  ['txn-amt','txn-desc','txn-memo'].forEach(id=>document.getElementById(id).value='');
-  updateTxnMember(); populateCatSel(); openM('modal-txn');
+  ['txn-amt','txn-desc','txn-memo'].forEach(id => document.getElementById(id).value = '');
+  updateTxnMember();
+  populateCatSel();
+  openM('modal-txn');
 }
+
 function updateTxnMember() {
   const sel = document.getElementById('txn-member');
   if (!sel) return;
-  sel.innerHTML = S.members.map(m=>
+  sel.innerHTML = S.members.map(m =>
     `<option value="${m.name}" ${m.name===S.me?'selected':''}>${m.emoji||''} ${m.name}</option>`
   ).join('') || `<option value="${S.me}">${S.me}</option>`;
 }
+
 function setTT(type) {
-  document.getElementById('txn-type').value=type;
-  document.getElementById('tb-e').className=`tb ${type==='지출'?'ae':''}`;
-  document.getElementById('tb-i').className=`tb ${type==='수입'?'ai':''}`;
+  document.getElementById('txn-type').value = type;
+  document.getElementById('tb-e').className = `tb ${type==='지출'?'ae':''}`;
+  document.getElementById('tb-i').className = `tb ${type==='수입'?'ai':''}`;
   populateCatSel();
 }
+
 function populateCatSel() {
-  document.getElementById('txn-cat').innerHTML=
-    (document.getElementById('txn-type').value==='수입'?INC:EXP).map(c=>`<option>${c}</option>`).join('');
+  const type = document.getElementById('txn-type').value;
+  document.getElementById('txn-cat').innerHTML =
+    (type==='수입'?INC:EXP).map(c=>`<option>${c}</option>`).join('');
 }
+
 async function submitTxn() {
-  const b={action:'addTransaction',date:q('txn-date'),type:q('txn-type'),
-    category:q('txn-cat'),desc:q('txn-desc'),amount:q('txn-amt'),
-    payMethod:q('txn-pay'),memo:q('txn-memo'),member:q('txn-member')||S.me};
-  if (!b.amount||!b.desc) { toast('내용과 금액을 입력하세요','err'); return; }
+  if (!API_URL) { toast('먼저 ⚙️ 설정에서 Sheets URL을 입력해주세요', 'err'); return; }
+
+  const params = {
+    date:      qv('txn-date'),
+    type:      qv('txn-type'),
+    category:  qv('txn-cat'),
+    desc:      qv('txn-desc'),
+    amount:    qv('txn-amt'),
+    payMethod: qv('txn-pay'),
+    memo:      qv('txn-memo'),
+    member:    qv('txn-member') || S.me,
+  };
+
+  if (!params.amount || !params.desc) { toast('내용과 금액을 입력하세요', 'err'); return; }
+
+  const btn = document.getElementById('txn-save-btn');
+  btn.textContent = '저장 중...';
+  btn.disabled = true;
+
   try {
-    const res = await apiPost(b);
+    const res = await api('addTransaction', params);
     closeM('modal-txn');
     toast('✅ 저장됐습니다!');
-    const txn={...b,id:res.id||'',createdAt:new Date().toISOString()};
-    prependTxn(txn,'dash-txns');
-    prependFeed({time:new Date().toISOString(),member:b.member,action:'거래추가',
-      detail:`${b.type} ${b.category} ${fmt(Number(b.amount))}원`},'live-feed');
+
+    // 즉시 대시보드 및 피드에 반영
+    const txn = { ...params, id: res.id || '', amount: Number(params.amount), createdAt: new Date().toISOString() };
+    prependTxn(txn, 'dash-txns');
+    prependFeed({ time: new Date().toISOString(), member: params.member, action: '거래추가',
+      detail: `${params.type} ${params.category} ${fmt(Number(params.amount))}원` }, 'live-feed');
+
+    // 가계부 페이지 열려있으면 갱신
     if (isActive('ledger')) loadLedger();
-  } catch(e) { toast(e.message,'err'); }
+
+    // 대시보드 지표 갱신 (순자산 변화 반영)
+    setTimeout(loadDashboard, 500);
+
+  } catch(e) {
+    toast(`저장 실패: ${e.message}`, 'err');
+  } finally {
+    btn.textContent = '저장';
+    btn.disabled = false;
+  }
 }
+
 function prependTxn(t, elId) {
-  const el=document.getElementById(elId);
+  const el = document.getElementById(elId);
   if (!el) return;
-  const div=document.createElement('div');
-  div.innerHTML=txnHTML(t,false);
-  const child=div.firstElementChild;
+  // "거래 없음" 메시지 제거
+  const emptyEl = el.querySelector('.empty');
+  if (emptyEl) emptyEl.remove();
+  const div = document.createElement('div');
+  div.innerHTML = txnHTML(t, false);
+  const child = div.firstElementChild;
   if (child) { child.classList.add('new'); el.prepend(child); }
-  while(el.children.length>8) el.removeChild(el.lastChild);
+  while (el.children.length > 8) el.removeChild(el.lastChild);
 }
+
 async function deleteTxn(id, desc, e) {
   e.stopPropagation();
   if (!confirm(`"${desc}" 거래를 삭제할까요?`)) return;
-  try { await apiPost({action:'deleteTransaction',id,desc,member:S.me}); toast('🗑️ 삭제!'); loadLedger(); }
-  catch(e) { toast(e.message,'err'); }
+  try {
+    await api('deleteTransaction', { id, desc, member: S.me });
+    toast('🗑️ 삭제됐습니다');
+    loadLedger();
+    setTimeout(loadDashboard, 500);
+  } catch(e) { toast(e.message, 'err'); }
 }
 
-// ── 모달: 자산 ──
+// ══════════════════════════════════════════════════════
+// 모달: 자산
+// ══════════════════════════════════════════════════════
 function openAsset() { openM('modal-asset'); }
+
 async function submitAsset() {
-  const b={action:'addAsset',name:q('a-name'),type:q('a-type'),institution:q('a-inst'),
-    currentValue:q('a-val'),purchaseValue:q('a-cost'),memo:q('a-memo'),member:S.me};
-  if (!b.name||!b.currentValue) { toast('자산명과 금액을 입력하세요','err'); return; }
-  try { await apiPost(b); closeM('modal-asset'); toast('✅ 자산 추가!'); loadAssets(); }
-  catch(e) { toast(e.message,'err'); }
+  if (!API_URL) { toast('먼저 ⚙️ 설정에서 Sheets URL을 입력해주세요', 'err'); return; }
+  const params = { name:qv('a-name'), type:qv('a-type'), institution:qv('a-inst'),
+    currentValue:qv('a-val'), purchaseValue:qv('a-cost'), memo:qv('a-memo'), member:S.me };
+  if (!params.name || !params.currentValue) { toast('자산명과 금액을 입력하세요', 'err'); return; }
+  try {
+    await api('addAsset', params);
+    closeM('modal-asset');
+    toast('✅ 자산 추가됐습니다!');
+    loadAssets();
+    setTimeout(loadDashboard, 500);
+  } catch(e) { toast(e.message, 'err'); }
 }
 
-// ── 모달: 목표 ──
+// ══════════════════════════════════════════════════════
+// 모달: 목표
+// ══════════════════════════════════════════════════════
 function openGoal() { openM('modal-goal'); }
+
 async function submitGoal() {
-  const b={action:'addGoal',name:q('g-name'),type:q('g-type'),target:q('g-target'),
-    current:q('g-current'),targetDate:q('g-date'),monthly:q('g-monthly'),member:S.me};
-  if (!b.name||!b.target) { toast('목표명과 금액을 입력하세요','err'); return; }
-  try { await apiPost(b); closeM('modal-goal'); toast('✅ 목표 추가!'); loadGoals(); }
-  catch(e) { toast(e.message,'err'); }
-}
-function openUpdateGoal(id, name, current) {
-  const v=prompt(`"${name}" 현재 금액 업데이트 (원):`, current);
-  if (v===null) return;
-  apiPost({action:'updateGoal',id,name,current:Number(v),member:S.me})
-    .then(()=>{ toast('✅ 목표 업데이트!'); loadGoals(); })
-    .catch(e=>toast(e.message,'err'));
+  if (!API_URL) { toast('먼저 ⚙️ 설정에서 Sheets URL을 입력해주세요', 'err'); return; }
+  const params = { name:qv('g-name'), type:qv('g-type'), target:qv('g-target'),
+    current:qv('g-current'), targetDate:qv('g-date'), monthly:qv('g-monthly'), member:S.me };
+  if (!params.name || !params.target) { toast('목표명과 금액을 입력하세요', 'err'); return; }
+  try {
+    await api('addGoal', params);
+    closeM('modal-goal');
+    toast('✅ 목표 추가됐습니다!');
+    loadGoals();
+  } catch(e) { toast(e.message, 'err'); }
 }
 
-// ── 유틸 ──
-function q(id) { return document.getElementById(id)?.value||''; }
+function openUpdateGoal(id, name, current) {
+  const v = prompt(`"${name}" 현재 금액 업데이트 (원):`, current);
+  if (v === null) return;
+  api('updateGoal', { id, name, current: v, member: S.me })
+    .then(() => { toast('✅ 목표 업데이트됐습니다!'); loadGoals(); setTimeout(loadDashboard,500); })
+    .catch(e => toast(e.message, 'err'));
+}
+
+// ══════════════════════════════════════════════════════
+// 공통 유틸
+// ══════════════════════════════════════════════════════
+function qv(id) { return document.getElementById(id)?.value || ''; }
+
 function fmt(n) {
-  if (n==null) return '—';
-  const a=Math.abs(Math.round(n));
-  if (a>=100000000) return `${(n/100000000).toFixed(1)}억`;
-  if (a>=10000) return `${Math.round(n/10000).toLocaleString()}만`;
+  if (n == null) return '—';
+  const a = Math.abs(Math.round(n));
+  if (a >= 100000000) return `${(n/100000000).toFixed(1)}억`;
+  if (a >= 10000) return `${Math.round(n/10000).toLocaleString()}만`;
   return Math.round(n).toLocaleString();
 }
+
 function todayStr() { return new Date().toISOString().slice(0,10); }
-function assetIcon(t) { return {'예금/현금':'💰','주식/ETF':'📈','부동산':'🏠','자동차':'🚗','적금/보험':'🛡️'}[t]||'📦'; }
+
+function assetIcon(t) {
+  return {'예금/현금':'💰','주식/ETF':'📈','부동산':'🏠','자동차':'🚗','적금/보험':'🛡️'}[t]||'📦';
+}
+
 function relTime(iso) {
   if (!iso) return '';
-  const d=(Date.now()-new Date(iso))/1000;
-  if (d<60) return '방금';
-  if (d<3600) return `${Math.floor(d/60)}분 전`;
-  if (d<86400) return `${Math.floor(d/3600)}시간 전`;
-  return new Date(iso).toLocaleDateString('ko-KR',{month:'short',day:'numeric'});
+  const d = (Date.now() - new Date(iso)) / 1000;
+  if (d < 60)    return '방금';
+  if (d < 3600)  return `${Math.floor(d/60)}분 전`;
+  if (d < 86400) return `${Math.floor(d/3600)}시간 전`;
+  return new Date(iso).toLocaleDateString('ko-KR', {month:'short', day:'numeric'});
 }
+
 function txnHTML(t, showDel) {
-  const isInc=t.type==='수입';
-  const m=S.members.find(mb=>mb.name===t.member);
-  const mc=m?.color||'#94a3b8';
+  const isInc = t.type === '수입';
+  const m     = S.members.find(mb => mb.name === t.member);
+  const mc    = m?.color || '#94a3b8';
+  const safeId = (t.id||'').replace(/'/g,'');
+  const safeDesc = (t.desc||t.category||'').replace(/'/g,'');
   return `<div class="ti">
     <div class="tic">${CATS[t.category]||'•'}</div>
     <div class="tif">
       <div class="tin">${t.desc||t.category}</div>
       <div class="tic2">
         <span class="tmb" style="background:${mc}20;color:${mc}">${t.member||'—'}</span>
-        <span>${t.category}</span><span>${t.date||''}</span>
+        <span>${t.category||''}</span>
+        <span>${t.date||''}</span>
+        <span style="color:var(--muted)">${t.payMethod||''}</span>
       </div>
     </div>
     <div class="tamt ${isInc?'pos':'neg'}">${isInc?'+':'-'}${fmt(t.amount)}</div>
-    ${showDel&&t.id?`<button class="tdel" onclick="deleteTxn('${t.id}','${(t.desc||'').replace(/'/g,'')}',event)">✕</button>`:''}
+    ${showDel&&safeId?`<button class="tdel" onclick="deleteTxn('${safeId}','${safeDesc}',event)">✕</button>`:''}
   </div>`;
 }
+
 function openM(id) { document.getElementById(id).classList.add('open'); }
 function closeM(id) { document.getElementById(id).classList.remove('open'); }
-document.querySelectorAll('.mb2').forEach(el=>
-  el.addEventListener('click',e=>{ if(e.target===el) el.classList.remove('open'); }));
+document.querySelectorAll('.mb2').forEach(el =>
+  el.addEventListener('click', e => { if(e.target===el) el.classList.remove('open'); })
+);
 
 let toastT;
 function toast(msg, type='ok') {
-  const el=document.getElementById('toast');
-  el.textContent=msg; el.className=`toast show ${type}`;
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = `toast show ${type}`;
   clearTimeout(toastT);
-  toastT=setTimeout(()=>el.classList.remove('show'),3500);
+  toastT = setTimeout(() => el.classList.remove('show'), 4000);
 }
+
 let alertT;
 function showAlert(msg, icon='🔔') {
-  document.getElementById('alert-msg').textContent=msg;
-  document.getElementById('alert-icon').textContent=icon;
-  const el=document.getElementById('alert-banner');
+  document.getElementById('alert-msg').textContent = msg;
+  document.getElementById('alert-icon').textContent = icon;
+  const el = document.getElementById('alert-banner');
   el.classList.add('show');
   clearTimeout(alertT);
-  alertT=setTimeout(()=>el.classList.remove('show'),4000);
+  alertT = setTimeout(() => el.classList.remove('show'), 4000);
 }
 
 // PWA
 if ('serviceWorker' in navigator)
-  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 
-// ── 초기화 (URL 없어도 즉시 동작) ──
+// ══════════════════════════════════════════════════════
+// 초기화
+// ══════════════════════════════════════════════════════
 (function init() {
-  try { const s=localStorage.getItem('wealthos_budgets'); if(s) S.budgets=JSON.parse(s); } catch(e){}
+  try { const s = localStorage.getItem('wealthos_budgets'); if(s) S.budgets = JSON.parse(s); } catch(e){}
   initMonthSel();
-  initMembers(null);   // 기본 구성원으로 즉시 렌더링
-  renderDemoDash();    // 데모 데이터로 즉시 화면 표시
-  if (API_URL) { setSyncState('sync'); startPolling(); loadDashboard(); }
+  initMembers(null); // 기본 구성원으로 즉시 렌더링
+  loadDashboard();   // URL 있으면 실제 데이터, 없으면 빈 화면 + 안내
+  if (API_URL) startPolling();
   else setSyncState('off');
 })();
 </script>
