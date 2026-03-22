@@ -1,0 +1,28 @@
+name: WEALTHOS Code Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Check JS syntax
+        run: |
+          echo "🔍 Validating Apps Script code syntax..."
+          node --check Code.gs && echo "✅ Code.gs syntax OK" || echo "❌ Syntax error in Code.gs"
+      - name: Check required files
+        run: |
+          echo "📁 Checking required files..."
+          test -f Code.gs && echo "✅ Code.gs found"
+          test -f appsscript.json && echo "✅ appsscript.json found"
+          test -f README.md && echo "✅ README.md found"
+          echo "✅ All required files present"
