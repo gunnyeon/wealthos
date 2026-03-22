@@ -488,7 +488,7 @@ body{font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;background:var(-
 // ══════════════════════════════════════════════════════
 const URL_KEY = 'wealthos_url';
 // 저장된 URL 검증 — 유효하지 않은 값 무시
-const _stored = localStorage.getItem(URL_KEY) || '';
+const _stored = localStorage.getItem(URL_KEY) || 'https://script.google.com/macros/s/AKfycbwl8fA7qIazrYKwHV3JeC0VsbKeu_VlV18kp4LLXB4_5sRqR8908RQptpD3-w_gIyfB/exec';
 let API_URL = _stored.startsWith('https://script.google.com') ? _stored : '';
 
 const CATS = {
