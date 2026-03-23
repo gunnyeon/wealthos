@@ -333,17 +333,20 @@ body{
 
 /* ══ 모달 ══════════════════════════════════════════════ */
 .mod-bg{
-  position:fixed;inset:0;
-  background:rgba(15,23,42,.45);
-  backdrop-filter:blur(6px);
-  -webkit-backdrop-filter:blur(6px);
-  z-index:200;
+  position:fixed;
+  inset:0;
+  background:rgba(15,23,42,.5);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  z-index:400; /* 탭바(300)보다 높음 */
   display:flex;
   align-items:center;
   justify-content:center;
+  padding:16px;
   opacity:0;
   pointer-events:none;
   transition:opacity .2s;
+  box-sizing:border-box;
 }
 .mod-bg.on{opacity:1;pointer-events:all;}
 .mod{
@@ -352,47 +355,40 @@ body{
   border-radius:20px;
   padding:0;
   width:500px;
-  max-width:92vw;
-  max-height:85vh;
+  max-width:min(500px, calc(100vw - 32px));
+  max-height:min(85vh, calc(100dvh - 32px));
   display:flex;
   flex-direction:column;
   overflow:hidden;
   box-shadow:var(--sh-lg);
-  /* PC: 스케일 애니메이션 */
-  transform:scale(.94);
+  transform:scale(.95);
   opacity:0;
-  transition:transform .22s cubic-bezier(.34,1.56,.64,1), opacity .18s ease;
+  transition:transform .2s cubic-bezier(.34,1.56,.64,1), opacity .15s ease;
 }
 .mod-bg.on .mod{
   transform:scale(1);
   opacity:1;
 }
-/* 핸들 — PC에서 숨김 */
 .mod-handle{display:none;}
-/* 제목 */
 .mot{
   font-size:18px;font-weight:800;
-  margin:0;padding:22px 24px 16px;
-  letter-spacing:-.3px;flex-shrink:0;
+  padding:22px 24px 16px;
+  margin:0;flex-shrink:0;
   border-bottom:1px solid var(--border);
+  letter-spacing:-.3px;
 }
-/* 본문 스크롤 영역 */
 .mod-body{
-  flex:1;
-  overflow-y:auto;
-  overflow-x:hidden;
+  flex:1;min-height:0;
+  overflow-y:auto;overflow-x:hidden;
   -webkit-overflow-scrolling:touch;
   padding:18px 24px;
-  min-height:0;
 }
-/* 버튼 푸터 */
 .moa{
+  flex-shrink:0;
   display:flex;gap:10px;
   padding:14px 24px 18px;
   border-top:1px solid var(--border);
   justify-content:flex-end;
-  flex-wrap:wrap;
-  flex-shrink:0;
   background:var(--bg2);
 }
 /* mot/moa는 .mod 블록에서 정의됨 */
@@ -544,77 +540,66 @@ body{
   .btn{padding:12px 16px;font-size:14px;min-height:44px;}
   .bsm{padding:9px 13px;font-size:13px;min-height:40px;}
 
-  /* ── 모바일 모달 — 하단 시트 ── */
+  /* ── 모바일 모달 — 화면 중앙 배치 ── */
   .mod-bg{
-    align-items:flex-end !important;
-    justify-content:flex-end !important;
-    padding:0 !important;
+    align-items:center !important;
+    justify-content:center !important;
+    padding:20px !important;
   }
   .mod{
-    /* 크기 */
-    width:100vw !important;
-    max-width:100vw !important;
-    max-height:85vh !important;
+    width:100% !important;
+    max-width:calc(100vw - 40px) !important;
+    max-height:calc(100dvh - 120px) !important;
     height:auto !important;
-    /* 위치/모양 */
-    border-radius:22px 22px 0 0 !important;
-    margin:0 !important;
-    /* 애니메이션: 위에서 scale이 아닌 아래서 슬라이드 */
-    transform:translateY(100%) !important;
-    opacity:1 !important;
-    transition:transform .28s cubic-bezier(.32,.72,0,1) !important;
-    /* 레이아웃 */
+    border-radius:20px !important;
+    margin:0 auto !important;
+    transform:scale(.9) !important;
+    opacity:0 !important;
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1), opacity .15s ease !important;
     display:flex !important;
     flex-direction:column !important;
     overflow:hidden !important;
   }
   .mod-bg.on .mod{
-    transform:translateY(0) !important;
+    transform:scale(1) !important;
     opacity:1 !important;
   }
-  /* 핸들바 표시 */
-  .mod-handle{
-    display:block !important;
-    width:40px;height:5px;
-    background:var(--border);border-radius:3px;
-    margin:12px auto 4px;
-    flex-shrink:0;
-  }
+  /* 핸들바 숨김 (중앙 팝업이라 불필요) */
+  .mod-handle{ display:none !important; }
   /* 제목 */
   .mot{
     font-size:17px !important;
     font-weight:800 !important;
+    padding:18px 18px 14px !important;
     margin:0 !important;
-    padding:10px 20px 12px !important;
     border-bottom:1px solid var(--border) !important;
     flex-shrink:0 !important;
-    letter-spacing:-.3px;
   }
-  /* 본문 — 스크롤 */
+  /* 본문 스크롤 */
   .mod-body{
     flex:1 !important;
+    min-height:0 !important;
     overflow-y:auto !important;
     overflow-x:hidden !important;
     -webkit-overflow-scrolling:touch !important;
-    padding:16px 20px 8px !important;
-    min-height:0 !important;
+    padding:16px 18px !important;
   }
-  /* 버튼 푸터 — 화면 하단 고정 */
+  /* 버튼 — 하단 고정 */
   .moa{
     flex-shrink:0 !important;
     display:flex !important;
-    gap:10px !important;
-    padding:12px 20px !important;
-    padding-bottom:calc(14px + env(safe-area-inset-bottom)) !important;
+    gap:8px !important;
+    padding:12px 18px !important;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom)) !important;
     border-top:1px solid var(--border) !important;
     background:var(--bg2) !important;
     justify-content:stretch !important;
-    flex-wrap:nowrap !important;
   }
   .moa .btn{
     flex:1 !important;
-    min-height:48px !important;
+    min-height:46px !important;
     font-size:15px !important;
+    justify-content:center !important;
   }
 
   /* 피드 */
@@ -1133,14 +1118,14 @@ function getApiUrl() {
 // ── 클라이언트 메모리 캐시 ────────────────────────────────────
 const MEM_CACHE = {};
 const CACHE_MS = {
-  getDashboard: 20000,  // 20초
-  getMembers:   60000,  // 60초
-  getGoals:     30000,  // 30초
-  getAssets:    30000,  // 30초
-  getBudgets:   60000,  // 60초
-  getCategories:120000, // 2분
-  getPayMethods:120000, // 2분
-  getActivity:  10000,  // 10초
+  getDashboard: 30000,   // 30초
+  getMembers:   300000,  // 5분
+  getGoals:     60000,   // 60초
+  getAssets:    60000,   // 60초
+  getBudgets:   300000,  // 5분
+  getCategories:600000,  // 10분
+  getPayMethods:600000,  // 10분
+  getActivity:  15000,   // 15초
 };
 // 데이터 변경 시 관련 캐시 무효화
 const INVALIDATE_ON = {
@@ -1278,8 +1263,10 @@ function go(pg) {
   document.querySelectorAll('.ni').forEach(e => {
     if (e.getAttribute('onclick')?.includes("'" + pg + "'")) e.classList.add('on');
   });
-  ({ dash: loadDash, ledger: loadLedger, assets: loadAssets,
-     goals: loadGoals, analysis: loadAnalysis, activity: loadActivity, settings: loadSettings })[pg]?.();
+  // 캐시 즉시 렌더 후 백그라운드 갱신
+  const fns = { dash: loadDash, ledger: loadLedger, assets: loadAssets,
+     goals: loadGoals, analysis: loadAnalysis, activity: loadActivity, settings: loadSettings };
+  fns[pg]?.();
 }
 const isActive = pg => !!$('pg-' + pg)?.classList.contains('on');
 
@@ -1335,16 +1322,19 @@ async function loadDash() {
     initMems(null);
     return;
   }
-  // 캐시된 데이터 즉시 표시 (체감 속도 향상)
+  // 캐시 즉시 표시
   const cached = MEM_CACHE['getDashboard'];
-  if (cached) {
+  if (cached && cached.data) {
     initMems(cached.data.members || null);
     S.budgets = cached.data.budgets || {};
     renderDash(cached.data);
+    $('warn-area').innerHTML = '';
+    // 캐시가 20초 이내면 서버 재요청 안 함
+    if (Date.now() - cached.ts < 20000) return;
   } else {
     $('dash-time').textContent = '로딩 중...';
+    $('warn-area').innerHTML = '';
   }
-  $('warn-area').innerHTML = '';
   try {
     const d = await call({ action: 'getDashboard' });
     initMems(d.members || null);
@@ -2796,11 +2786,29 @@ function txnRow(t, showDel) {
   </div>`;
 }
 
-function openM(id)  { $(id).classList.add('on'); }
-function closeM(id) { $(id).classList.remove('on'); }
-document.querySelectorAll('.mod-bg').forEach(el =>
-  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('on'); })
-);
+function openM(id) {
+  $(id).classList.add('on');
+  // body 스크롤 막기 (모달 열릴 때 배경 스크롤 방지)
+  document.body.style.overflow = 'hidden';
+}
+function closeM(id) {
+  $(id).classList.remove('on');
+  // 열린 모달이 없으면 스크롤 복원
+  if (!document.querySelector('.mod-bg.on')) {
+    document.body.style.overflow = '';
+  }
+}
+// 백드롭 클릭/터치로 닫기 (click + touchend 둘 다 처리)
+document.querySelectorAll('.mod-bg').forEach(el => {
+  const handler = e => {
+    if (e.target === el) {
+      el.classList.remove('on');
+      if (!document.querySelector('.mod-bg.on')) document.body.style.overflow = '';
+    }
+  };
+  el.addEventListener('click', handler);
+  el.addEventListener('touchend', handler, { passive: true });
+});
 
 let toastT;
 function toast(msg, type = 'ok') {
