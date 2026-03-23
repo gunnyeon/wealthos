@@ -341,19 +341,29 @@ body{
 .mod-bg.on{opacity:1;pointer-events:all;}
 .mod{
   background:var(--bg2);border:1px solid var(--border);
-  border-radius:20px;padding:24px;
-  width:500px;max-width:96vw;max-height:88vh;overflow-y:auto;
+  border-radius:20px;padding:0;
+  width:500px;max-width:96vw;max-height:88vh;
   transform:scale(.95) translateY(10px);transition:transform .25s cubic-bezier(.34,1.56,.64,1);
-  display:flex;flex-direction:column;
+  display:flex;flex-direction:column;overflow:hidden;
   box-shadow:var(--sh-lg);
 }
-.mod-bg.on .mod{transform:scale(1) translateY(0);}
-.mot{font-size:18px;font-weight:800;margin-bottom:18px;letter-spacing:-.3px;}
+/* PC 모달 핸들 숨김 */
+.mod-handle{display:none;}
+/* PC 모달 제목 */
+.mot{font-size:18px;font-weight:800;margin:0;padding:22px 24px 16px;letter-spacing:-.3px;flex-shrink:0;}
+/* PC 모달 본문 스크롤 */
+.mod-body{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 24px;min-height:0;}
+/* PC 모달 버튼 푸터 */
 .moa{
-  display:flex;gap:10px;margin-top:20px;
+  display:flex;gap:10px;
+  padding:16px 24px;
+  padding-top:14px;
+  border-top:1px solid var(--border);
   justify-content:flex-end;flex-wrap:wrap;
-  padding-top:16px;border-top:1px solid var(--border);
+  flex-shrink:0;background:var(--bg2);
 }
+.mod-bg.on .mod{transform:scale(1) translateY(0);}
+/* mot/moa는 .mod 블록에서 정의됨 */
 
 /* ══ 경고 배너 ══════════════════════════════════════════ */
 .warn-b{
@@ -502,49 +512,61 @@ body{
   .btn{padding:12px 16px;font-size:14px;min-height:44px;}
   .bsm{padding:9px 13px;font-size:13px;min-height:40px;}
 
-  /* 모달 — 하단 슬라이드업 + 완전한 스크롤 */
-  .mod-bg{align-items:flex-end;}
-  .mod{
-    width:100%;
-    max-width:100%;
-    height:auto;
-    max-height:88vh;
-    border-radius:20px 20px 0 0;
+  /* ── 모달 완전 재설계 ── */
+  .mod-bg{
+    align-items:flex-end;
     padding:0;
-    margin:0;
+  }
+  .mod{
+    width:100% !important;
+    max-width:100% !important;
+    height:auto;
+    max-height:90vh;
+    border-radius:20px 20px 0 0 !important;
+    padding:0 !important;
+    margin:0 !important;
     transform:translateY(100%);
     display:flex;
     flex-direction:column;
+    overflow:hidden;
   }
   .mod-bg.on .mod{transform:translateY(0);}
-  /* 모달 핸들바 */
-  .mod::before{
-    content:'';
-    display:block;
+  /* 핸들바 */
+  .mod-handle{
     width:40px;height:4px;
     background:var(--border);border-radius:2px;
-    margin:12px auto 4px;flex-shrink:0;
+    margin:14px auto 0;flex-shrink:0;
   }
+  /* 모달 제목 */
   .mot{
-    font-size:17px;margin:0;padding:8px 18px 14px;
-    border-bottom:1px solid var(--border);flex-shrink:0;
+    font-size:17px !important;
+    font-weight:800;
+    margin:0 !important;
+    padding:12px 18px 12px !important;
+    border-bottom:1px solid var(--border);
+    flex-shrink:0;
   }
-  /* 모달 내부 스크롤 영역 */
-  .mod > div:not(.moa){
-    padding:16px 18px 0;
-    overflow-y:auto;
-    -webkit-overflow-scrolling:touch;
+  /* 모달 본문 스크롤 영역 */
+  .mod-body{
     flex:1;
+    overflow-y:auto;
+    overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;
+    padding:16px 18px;
     min-height:0;
   }
+  /* 버튼 푸터 — 항상 하단 고정 */
   .moa{
-    margin:0;padding:14px 18px;
-    padding-bottom:calc(14px + env(safe-area-inset-bottom));
+    margin:0 !important;
+    padding:12px 18px !important;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom)) !important;
     border-top:1px solid var(--border);
-    flex-shrink:0;background:var(--bg2);
-    position:sticky;bottom:0;
+    flex-shrink:0;
+    background:var(--bg2);
+    display:flex;
+    gap:8px;
   }
-  .moa .btn{flex:1;}
+  .moa .btn{flex:1 !important;}
 
   /* 피드 */
   .fi{padding:10px 11px;}
@@ -855,42 +877,37 @@ body{
 <!-- ── 거래 입력 모달 ── -->
 <div class="mod-bg" id="mod-txn">
   <div class="mod">
+    <div class="mod-handle"></div>
     <div class="mot">➕ 거래 입력</div>
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <input type="hidden" id="t-id">
-      <div class="fgr"><label class="fl">누가</label><select class="fs" id="t-who"></select></div>
-      <div class="fgr">
-        <label class="fl">유형</label>
-        <div class="tt">
-          <button class="tb ae" id="tb-e" onclick="setType('지출')">지출</button>
-          <button class="tb" id="tb-i" onclick="setType('수입')">수입</button>
+    <div class="mod-body">
+      <div style="display:flex;flex-direction:column;gap:13px;">
+        <input type="hidden" id="t-id">
+        <div class="fgr"><label class="fl">누가</label><select class="fs" id="t-who"></select></div>
+        <div class="fgr">
+          <label class="fl">유형</label>
+          <div class="tt">
+            <button class="tb ae" id="tb-e" onclick="setType('지출')">지출</button>
+            <button class="tb" id="tb-i" onclick="setType('수입')">수입</button>
+          </div>
+          <input type="hidden" id="t-type" value="지출">
         </div>
-        <input type="hidden" id="t-type" value="지출">
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="fgr"><label class="fl">날짜</label><input class="fi2" type="date" id="t-date"></div>
         <div class="fgr"><label class="fl">금액(원)</label><input class="fi2" type="number" id="t-amt" placeholder="0" oninput="onAmtChange()"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="fgr"><label class="fl">카테고리</label><select class="fs" id="t-cat" onchange="onCatChange()"></select></div>
-        <div class="fgr"><label class="fl">결제수단</label>
-          <select class="fs" id="t-pay"></select>
+        <div class="fgr"><label class="fl">결제수단</label><select class="fs" id="t-pay"></select></div>
+        <div class="fgr"><label class="fl">내용/가맹점</label><input class="fi2" id="t-desc" placeholder="예: 스타벅스 강남점"></div>
+        <div class="fgr"><label class="fl">메모 (선택)</label><input class="fi2" id="t-memo" placeholder="선택사항"></div>
+        <div class="asset-link" id="asset-link-box" style="display:none;">
+          <div class="asset-link-title">🔗 자산 연동 — 지출 금액만큼 해당 자산 금액이 증가합니다</div>
+          <div class="fgr">
+            <label class="fl">연동할 자산 선택</label>
+            <select class="fs" id="t-asset-link"><option value="">연동 안 함</option></select>
+          </div>
+          <div id="asset-link-preview" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
         </div>
-      </div>
-      <div class="fgr"><label class="fl">내용/가맹점</label><input class="fi2" id="t-desc" placeholder="예: 스타벅스 강남점"></div>
-      <div class="fgr"><label class="fl">메모 (선택)</label><input class="fi2" id="t-memo" placeholder="선택사항"></div>
-      <!-- 자산 연동 -->
-      <div class="asset-link" id="asset-link-box" style="display:none;">
-        <div class="asset-link-title">🔗 자산 연동 — 지출 금액만큼 해당 자산 금액이 증가합니다</div>
-        <div class="fgr">
-          <label class="fl">연동할 자산 선택</label>
-          <select class="fs" id="t-asset-link"><option value="">연동 안 함</option></select>
-        </div>
-        <div id="asset-link-preview" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
       </div>
     </div>
-    <!-- 버튼: 항상 모달 안에 고정 -->
-    <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border);">
+    <div class="moa">
       <button class="btn bs" onclick="closeM('mod-txn')">취소</button>
       <button class="btn" id="t-del-btn" style="background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.3);display:none;" onclick="deleteTxnFromModal()">🗑️ 삭제</button>
       <button class="btn bp" id="t-btn" onclick="submitTxn()">저장</button>
@@ -901,21 +918,23 @@ body{
 <!-- ── 자산 모달 ── -->
 <div class="mod-bg" id="mod-asset">
   <div class="mod">
+    <div class="mod-handle"></div>
     <div class="mot">🏦 자산 추가/수정</div>
-    <div style="display:flex;flex-direction:column;gap:11px;">
-      <div class="fgr"><label class="fl">자산명</label><input class="fi2" id="a-nm" placeholder="예: 국민은행 통장"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <div class="mod-body">
+      <div style="display:flex;flex-direction:column;gap:13px;">
+        <div class="fgr"><label class="fl">자산명</label><input class="fi2" id="a-nm" placeholder="예: 국민은행 통장"></div>
         <div class="fgr"><label class="fl">유형</label>
-          <select class="fs" id="a-type"><option>예금/현금</option><option>주식/ETF</option><option>부동산</option><option>자동차</option><option>적금/보험</option><option>기타</option></select>
+          <select class="fs" id="a-type">
+            <option>예금/현금</option><option>주식/ETF</option><option>부동산</option>
+            <option>자동차</option><option>적금/보험</option><option>기타</option>
+          </select>
         </div>
         <div class="fgr"><label class="fl">기관</label><input class="fi2" id="a-inst" placeholder="예: 국민은행"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="fgr"><label class="fl">현재 평가금액(원)</label><input class="fi2" type="number" id="a-val"></div>
         <div class="fgr"><label class="fl">취득금액(원)</label><input class="fi2" type="number" id="a-cost"></div>
+        <div class="fgr"><label class="fl">메모</label><input class="fi2" id="a-memo"></div>
+        <input type="hidden" id="a-id">
       </div>
-      <div class="fgr"><label class="fl">메모</label><input class="fi2" id="a-memo"></div>
-      <input type="hidden" id="a-id">
     </div>
     <div class="moa">
       <button class="btn bs" onclick="closeM('mod-asset')">취소</button>
@@ -928,21 +947,23 @@ body{
 <!-- ── 목표 모달 ── -->
 <div class="mod-bg" id="mod-goal">
   <div class="mod">
+    <div class="mod-handle"></div>
     <div class="mot">🎯 목표 추가/수정</div>
-    <div style="display:flex;flex-direction:column;gap:11px;">
-      <div class="fgr"><label class="fl">목표명</label><input class="fi2" id="g-nm" placeholder="예: 내집마련"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <div class="mod-body">
+      <div style="display:flex;flex-direction:column;gap:13px;">
+        <div class="fgr"><label class="fl">목표명</label><input class="fi2" id="g-nm" placeholder="예: 내집마련"></div>
         <div class="fgr"><label class="fl">유형</label>
-          <select class="fs" id="g-type"><option>부동산</option><option>은퇴</option><option>자동차</option><option>여행</option><option>비상금</option><option>교육</option><option>기타</option></select>
+          <select class="fs" id="g-type">
+            <option>부동산</option><option>은퇴</option><option>자동차</option>
+            <option>여행</option><option>비상금</option><option>교육</option><option>기타</option>
+          </select>
         </div>
         <div class="fgr"><label class="fl">목표일</label><input class="fi2" type="date" id="g-date"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div class="fgr"><label class="fl">목표금액(원)</label><input class="fi2" type="number" id="g-tgt"></div>
         <div class="fgr"><label class="fl">현재금액(원)</label><input class="fi2" type="number" id="g-cur"></div>
+        <div class="fgr"><label class="fl">월 저축 계획(원)</label><input class="fi2" type="number" id="g-mon"></div>
+        <input type="hidden" id="g-id">
       </div>
-      <div class="fgr"><label class="fl">월 저축 계획(원)</label><input class="fi2" type="number" id="g-mon"></div>
-      <input type="hidden" id="g-id">
     </div>
     <div class="moa">
       <button class="btn bs" onclick="closeM('mod-goal')">취소</button>
@@ -953,11 +974,12 @@ body{
 
 <!-- ── 구성원 추가 모달 ── -->
 <div class="mod-bg" id="mod-mem">
-  <div class="mod" style="width:320px;">
+  <div class="mod">
+    <div class="mod-handle"></div>
     <div class="mot">👤 구성원 추가</div>
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      <div class="fgr"><label class="fl">이름</label><input class="fi2" id="mem-nm" placeholder="예: 아빠"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <div class="mod-body">
+      <div style="display:flex;flex-direction:column;gap:13px;">
+        <div class="fgr"><label class="fl">이름</label><input class="fi2" id="mem-nm" placeholder="예: 아빠"></div>
         <div class="fgr"><label class="fl">역할</label>
           <select class="fs" id="mem-role"><option>가족</option><option>부모</option><option>자녀</option></select>
         </div>
