@@ -1157,53 +1157,78 @@ function cacheInvalidate(action) {
   });
 }
 
-// fetch 기반 API 호출 (클라이언트 캐시 + 타임아웃)
+// fetch 기반 API 호출 (클라이언트 캐시 + 타임아웃 + 재시도)
+const WRITE_ACTIONS = new Set([
+  'addTransaction','updateTransaction','deleteTransaction',
+  'addAsset','updateAsset','deleteAsset',
+  'addGoal','updateGoal','addMember',
+  'saveSettings','saveCategory','deleteCategory',
+  'savePayMethod','deletePayMethod',
+]);
+
+async function fetchWithTimeout(fullUrl, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(fullUrl, {
+      method: 'GET', redirect: 'follow', signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res;
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 async function call(params) {
   const url = getApiUrl();
   if (!url) throw new Error('API URL 미설정 — ⚙️ 설정에서 Apps Script URL을 입력하세요');
 
   const action = params.action || '';
+  const isWrite = WRITE_ACTIONS.has(action);
 
-  // 읽기 요청은 캐시 확인
+  // 읽기 요청 캐시 확인
   const ttl = CACHE_MS[action];
-  if (ttl) {
+  if (ttl && !isWrite) {
     const hit = MEM_CACHE[action];
     if (hit && Date.now() - hit.ts < ttl) return hit.data;
   }
 
-  // 변경 요청은 관련 캐시 즉시 무효화
+  // 쓰기 요청 캐시 무효화
   if (INVALIDATE_ON[action]) cacheInvalidate(action);
 
+  // URL 파라미터 생성 (모든 값 안전하게 인코딩)
   const qs = new URLSearchParams(
-    Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))
+    Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v ?? '')]))
   ).toString();
   const fullUrl = url + (url.includes('?') ? '&' : '?') + qs;
 
-  // 12초 타임아웃
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  // 쓰기: 30초 타임아웃, 최대 2회 시도
+  // 읽기: 15초 타임아웃, 1회
+  const timeout = isWrite ? 30000 : 15000;
+  const maxTry  = isWrite ? 2 : 1;
 
-  try {
-    const res = await fetch(fullUrl, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!data || data.ok === false) throw new Error(data?.error || '서버 오류');
-    const result = data.data !== undefined ? data.data : data;
-
-    // 읽기 결과 캐시 저장
-    if (ttl) MEM_CACHE[action] = { ts: Date.now(), data: result };
-
-    return result;
-  } catch(e) {
-    clearTimeout(timer);
-    if (e.name === 'AbortError') throw new Error('응답 시간 초과 (12초)');
-    throw e;
+  let lastErr;
+  for (let attempt = 0; attempt < maxTry; attempt++) {
+    try {
+      const res = await fetchWithTimeout(fullUrl, timeout);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data || data.ok === false) throw new Error(data?.error || '서버 오류');
+      const result = data.data !== undefined ? data.data : data;
+      if (ttl && !isWrite) MEM_CACHE[action] = { ts: Date.now(), data: result };
+      return result;
+    } catch(e) {
+      lastErr = e;
+      if (e.name === 'AbortError') {
+        if (attempt < maxTry - 1) continue; // 재시도
+        throw new Error('서버 응답 시간 초과 — 잠시 후 다시 시도하세요');
+      }
+      throw e; // 타임아웃 외 오류는 즉시 throw
+    }
   }
+  throw lastErr;
 }
 
 // ══════════════════════════════════════════════════════
@@ -2415,22 +2440,30 @@ function openEditTxn(tJson, e) {
 }
 
 // 모달에서 삭제
-function deleteTxnFromModal() {
+async function deleteTxnFromModal() {
   const id      = gv('t-id');
-  const desc    = gv('t-desc');
-  const assetId = gv('t-asset-link') || '';  // 연동된 자산 ID
+  const desc    = gv('t-desc') || gv('t-cat') || '';
+  const assetId = gv('t-asset-link') || '';
   if (!id) return;
   if (!confirm(`"${desc}" 거래를 삭제할까요?
 이 작업은 되돌릴 수 없습니다.`)) return;
+
   closeM('mod-txn');
-  // ★ 즉시 화면에서 제거
+  const backup = [...S.ledger];
   S.ledger = S.ledger.filter(t => t.id !== id);
   if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
-  toast('🗑️ 삭제됐습니다');
-  // assetId 함께 전달 → 서버에서 자산 차감
-  call({ action: 'deleteTransaction', id, desc, member: S.me, assetId })
-    .then(() => { setTimeout(loadDash, 500); if (isActive('assets')) loadAssets(); })
-    .catch(err => { toast('삭제 실패: ' + err.message, 'err'); if (isActive('ledger')) loadLedger(); });
+  toast('삭제 중...');
+
+  try {
+    await call({ action: 'deleteTransaction', id, desc, member: S.me, assetId });
+    toast('🗑️ 삭제됐습니다');
+    cacheInvalidate('deleteTransaction');
+    setTimeout(loadDash, 300);
+  } catch(err) {
+    S.ledger = backup;
+    if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
+    toast('삭제 실패 — 다시 시도해주세요', 'err');
+  }
 }
 
 // 달력 날짜 클릭 시 해당 날짜로 거래 입력
@@ -2561,15 +2594,20 @@ async function submitTxn() {
     if (S.selDate) renderDayPanel(S.selDate);
   }
 
-  // 서버 저장 (백그라운드) — Code.gs가 자산 연동까지 처리
-  call(p)
-    .then(() => {
-      setTimeout(loadDash, 500);
-      // 자산 페이지 열려있으면 즉시 갱신
-      if (isActive('assets')) loadAssets();
-    })
-    .catch(e => toast('서버 저장 실패: ' + e.message, 'err'))
-    .finally(() => { btn.textContent = '저장'; btn.disabled = false; });
+  // 서버 저장
+  try {
+    await call(p);
+    cacheInvalidate(p.action);
+    setTimeout(loadDash, 300);
+    if (isActive('assets')) loadAssets();
+  } catch(e) {
+    toast('저장 실패: ' + e.message + ' — 다시 시도해주세요', 'err');
+    // 저장 실패 시 낙관적 추가 취소
+    S.ledger = S.ledger.filter(t => t.id !== txn.id && t.id !== (editId || ''));
+    if (isActive('ledger')) { renderCal(); updateMonthSum(); if(S.selDate) renderDayPanel(S.selDate); }
+  } finally {
+    btn.textContent = '저장'; btn.disabled = false;
+  }
 }
 
 function prependTxnRow(t, id) {
@@ -2585,17 +2623,24 @@ function prependTxnRow(t, id) {
 async function delTxn(id, desc, assetId, e) {
   if (e) e.stopPropagation();
   if (!confirm(`"${desc}" 거래를 삭제할까요?`)) return;
-  // ★ 즉시 화면에서 제거
+
+  // 낙관적 UI — 즉시 화면에서 숨기기 (실패 시 복원)
+  const backup = [...S.ledger];
   S.ledger = S.ledger.filter(t => t.id !== id);
   if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
-  toast('🗑️ 삭제됐습니다');
-  // 서버 삭제 — assetId 함께 전달 (자산 차감 처리)
-  call({ action: 'deleteTransaction', id, desc, member: S.me, assetId: assetId || '' })
-    .then(() => { setTimeout(loadDash, 500); if (isActive('assets')) loadAssets(); })
-    .catch(err => {
-      toast('삭제 실패: ' + err.message, 'err');
-      if (isActive('ledger')) loadLedger();
-    });
+  toast('삭제 중...');
+
+  try {
+    await call({ action: 'deleteTransaction', id, desc, member: S.me, assetId: assetId || '' });
+    toast('🗑️ 삭제됐습니다');
+    cacheInvalidate('deleteTransaction');
+    setTimeout(loadDash, 300);
+  } catch(err) {
+    // 실패 시 원복
+    S.ledger = backup;
+    if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
+    toast('삭제 실패: ' + err.message + ' (다시 시도해주세요)', 'err');
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -2787,28 +2832,38 @@ function txnRow(t, showDel) {
 }
 
 function openM(id) {
+  // 기존 열린 모달 모두 닫기
+  document.querySelectorAll('.mod-bg.on').forEach(m => m.classList.remove('on'));
   $(id).classList.add('on');
-  // body 스크롤 막기 (모달 열릴 때 배경 스크롤 방지)
-  document.body.style.overflow = 'hidden';
 }
 function closeM(id) {
   $(id).classList.remove('on');
-  // 열린 모달이 없으면 스크롤 복원
-  if (!document.querySelector('.mod-bg.on')) {
-    document.body.style.overflow = '';
-  }
+  // 항상 body overflow 복원 (모바일 탭바 먹통 방지)
+  document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.documentElement.style.overflow = '';
 }
-// 백드롭 클릭/터치로 닫기 (click + touchend 둘 다 처리)
+function closeAllModals() {
+  document.querySelectorAll('.mod-bg.on').forEach(m => m.classList.remove('on'));
+  document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.documentElement.style.overflow = '';
+}
+// 백드롭 터치/클릭으로 닫기
 document.querySelectorAll('.mod-bg').forEach(el => {
-  const handler = e => {
+  // touchstart로 즉시 반응 (touchend보다 빠름)
+  el.addEventListener('touchstart', e => {
     if (e.target === el) {
-      el.classList.remove('on');
-      if (!document.querySelector('.mod-bg.on')) document.body.style.overflow = '';
+      e.preventDefault();
+      closeAllModals();
     }
-  };
-  el.addEventListener('click', handler);
-  el.addEventListener('touchend', handler, { passive: true });
+  }, { passive: false });
+  el.addEventListener('click', e => {
+    if (e.target === el) closeAllModals();
+  });
 });
+// 뒤로가기 버튼으로 모달 닫기 (안드로이드)
+window.addEventListener('popstate', () => closeAllModals());
 
 let toastT;
 function toast(msg, type = 'ok') {
