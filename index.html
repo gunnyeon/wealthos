@@ -85,8 +85,8 @@ body{
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
 /* ══ 메인 영역 ══════════════════════════════════════════ */
-.main{flex:1;height:100vh;overflow-y:auto;display:flex;flex-direction:column;background:var(--bg);}
-.pg{display:none;flex:1;padding:24px 26px;min-height:100%;flex-direction:column;gap:14px;}
+.main{flex:1;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;background:var(--bg);}
+.pg{display:none;flex:1;padding:24px 26px;min-height:100%;flex-direction:column;gap:14px;overflow-x:hidden;}
 .pg.on{display:flex;}
 
 /* ══ 페이지 헤더 ══════════════════════════════════════════ */
@@ -173,7 +173,8 @@ body{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;}
 
 /* ══ 달력 패널 ══════════════════════════════════════════ */
-.cal-layout{display:flex;flex-direction:column;gap:14px;flex:1;min-height:0;overflow-y:auto;}
+.cal-layout{display:flex;flex-direction:column;gap:14px;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;}
+.cal-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
 .cal-panel{
   background:var(--bg2);border:1.5px solid var(--border);
   border-radius:var(--r);padding:18px;
@@ -300,15 +301,20 @@ body{
 /* ══ 알림 배너 ══════════════════════════════════════════ */
 .ab{
   position:fixed;top:16px;left:50%;
-  transform:translateX(-50%) translateY(-100px);
+  transform:translateX(-50%) translateY(-120px);
   background:var(--text);color:#fff;
   border-radius:28px;padding:11px 22px;
   font-size:14px;font-weight:600;
   display:flex;align-items:center;gap:9px;
   box-shadow:var(--sh-lg);
-  transition:transform .4s cubic-bezier(.34,1.56,.64,1);z-index:500;white-space:nowrap;
+  transition:transform .4s cubic-bezier(.34,1.56,.64,1);
+  z-index:600;white-space:nowrap;
+  opacity:0;pointer-events:none;
 }
-.ab.on{transform:translateX(-50%) translateY(0);}
+.ab.on{
+  transform:translateX(-50%) translateY(0);
+  opacity:1;pointer-events:auto;
+}
 
 /* ══ 토스트 ══════════════════════════════════════════════ */
 .toast{
@@ -479,7 +485,7 @@ body{
   /* 달력 */
   .cal-nav button{font-size:20px;padding:4px 8px;}
   .cal-nav-sel{font-size:13px;padding:5px 8px;}
-  .cal-wrap{gap:2px;}
+  .cal-wrap{gap:2px;min-width:280px;}
   .cal-dow{font-size:11px;padding:6px 2px;}
   .cal-day{min-height:58px;padding:5px 5px;border-radius:8px;border-width:1px;}
   .day-num{font-size:13px;font-weight:800;margin-bottom:2px;}
@@ -518,7 +524,15 @@ body{
     bottom:calc(64px + env(safe-area-inset-bottom) + 10px);
     right:12px;left:12px;text-align:center;
   }
-  .ab{bottom:calc(64px + env(safe-area-inset-bottom) + 60px);top:auto;font-size:13px;}
+  .ab{
+    top:auto;
+    bottom:calc(64px + env(safe-area-inset-bottom) + 12px);
+    font-size:13px;
+    transform:translateX(-50%) translateY(120px); /* 아래로 숨김 */
+  }
+  .ab.on{
+    transform:translateX(-50%) translateY(0);
+  }
   .vtab{padding:7px 12px;font-size:12px;}
 }
 
@@ -665,7 +679,7 @@ body{
   <div style="background:rgba(52,211,153,.07);border:1px solid rgba(52,211,153,.2);border-radius:var(--rs);padding:10px 14px;font-size:12px;color:var(--green);flex-shrink:0;">
     💡 거래 입력 시 <strong>투자수익 / 적금</strong> 카테고리를 선택하면 해당 자산 금액이 자동으로 업데이트됩니다.
   </div>
-  <div class="card fl"><div id="asset-list" style="flex:1;overflow-y:auto;"></div></div>
+  <div class="card fl"><div id="asset-list" style="flex:1;overflow-y:auto;overflow-x:hidden;"></div></div>
 </section>
 
 <!-- ── 목표 ── -->
@@ -674,7 +688,7 @@ body{
     <div><div class="pt">가족 목표</div><div class="ps">함께 이루는 재무 목표</div></div>
     <button class="btn bp" onclick="openGoal()">➕ 목표 추가</button>
   </div>
-  <div class="g2" id="goals-grid" style="flex:1;overflow-y:auto;align-content:start;"></div>
+  <div class="g2" id="goals-grid" style="flex:1;overflow-y:auto;overflow-x:hidden;align-content:start;"></div>
 </section>
 
 <!-- ── 소비 패턴 분석 ── -->
@@ -707,7 +721,7 @@ body{
   <!-- 월별 수입/지출 바 차트 -->
   <div class="card" style="flex-shrink:0;">
     <div class="ct">월별 수입 / 지출</div>
-    <div id="bar-chart" style="overflow-x:auto;"></div>
+    <div id="bar-chart" style="overflow-x:auto;-webkit-overflow-scrolling:touch;"></div>
   </div>
   <!-- 카테고리 도넛 + 월별 추세 -->
   <div class="g2" style="flex:1;min-height:0;">
@@ -793,7 +807,7 @@ body{
   <!-- 월별 예산 -->
   <div class="card fl">
     <div class="ct">월별 예산 설정 (원)</div>
-    <div class="bgt-grid" id="bgt-form" style="margin-top:10px;overflow-y:auto;flex:1;"></div>
+    <div class="bgt-grid" id="bgt-form" style="margin-top:10px;overflow-y:auto;overflow-x:hidden;flex:1;"></div>
     <div style="margin-top:14px;text-align:right;flex-shrink:0;">
       <button class="btn bp" onclick="saveBudgets()">💾 예산 저장</button>
     </div>
@@ -1025,9 +1039,9 @@ const CACHE_MS = {
 };
 // 데이터 변경 시 관련 캐시 무효화
 const INVALIDATE_ON = {
-  addTransaction:    ['getDashboard','getActivity'],
-  updateTransaction: ['getDashboard','getActivity'],
-  deleteTransaction: ['getDashboard','getActivity'],
+  addTransaction:    ['getDashboard','getActivity','getLedger_all'],
+  updateTransaction: ['getDashboard','getActivity','getLedger_all'],
+  deleteTransaction: ['getDashboard','getActivity','getLedger_all'],
   addAsset:          ['getDashboard','getAssets'],
   updateAsset:       ['getDashboard','getAssets'],
   deleteAsset:       ['getDashboard','getAssets'],
@@ -1043,7 +1057,14 @@ const INVALIDATE_ON = {
 
 function cacheInvalidate(action) {
   const keys = INVALIDATE_ON[action] || [];
-  keys.forEach(k => delete MEM_CACHE[k]);
+  keys.forEach(k => {
+    if (k === 'getLedger_all') {
+      // 모든 월별 캐시 무효화
+      Object.keys(MEM_CACHE).filter(k2 => k2.startsWith('getLedger_')).forEach(k2 => delete MEM_CACHE[k2]);
+    } else {
+      delete MEM_CACHE[k];
+    }
+  });
 }
 
 // fetch 기반 API 호출 (클라이언트 캐시 + 타임아웃)
@@ -1101,8 +1122,7 @@ async function call(params) {
 function startPoll() {
   if (S.timer) clearInterval(S.timer);
   doPoll();
-  // 탭 활성 여부에 따라 폴링 간격 조절
-  const interval = document.hidden ? 60000 : 20000;
+  const interval = document.hidden ? 60000 : 15000;
   S.timer = setInterval(doPoll, interval);
 }
 
@@ -1303,17 +1323,29 @@ function renderDash(d) {
 // ══════════════════════════════════════════════════════
 async function loadLedger() {
   renderCalHeader();
-  $('cal-grid').innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--muted)">로딩 중...</div>';
+  const ym = calYM();
+  // 캐시 키: 월별로 구분
+  const cacheKey = 'getLedger_' + ym;
+  const hit = MEM_CACHE[cacheKey];
+
+  // 캐시된 데이터 즉시 렌더 (서버 응답 전에 먼저 표시)
+  if (hit && Date.now() - hit.ts < 20000) {
+    S.ledger = hit.data;
+    renderCal(); updateMonthSum();
+    if (S.selDate) renderDayPanel(S.selDate);
+  } else {
+    $('cal-grid').innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--muted);font-size:14px;">🔄 불러오는 중...</div>';
+  }
   try {
-    const ym = calYM();
-    const d  = await call({ action: 'getLedger', month: ym });
-    S.ledger = Array.isArray(d) ? d : [];
-    renderCal();
-    updateMonthSum();
-    // 선택된 날짜가 있으면 패널 유지
+    const d = await call({ action: 'getLedger', month: ym });
+    MEM_CACHE[cacheKey] = { ts: Date.now(), data: Array.isArray(d) ? d : [] };
+    S.ledger = MEM_CACHE[cacheKey].data;
+    renderCal(); updateMonthSum();
     if (S.selDate) renderDayPanel(S.selDate);
   } catch(e) {
-    $('cal-grid').innerHTML = `<div style="grid-column:1/-1" class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
+    if (!S.ledger.length) {
+      $('cal-grid').innerHTML = `<div style="grid-column:1/-1" class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
+    }
   }
 }
 
@@ -1505,7 +1537,18 @@ function refreshCalDay(dateStr) {
 // 자산
 // ══════════════════════════════════════════════════════
 async function loadAssets() {
-  if (!$('asset-list').children.length) $('asset-list').innerHTML = '<div class="empty">로딩 중...</div>';
+  if (S.assets.length > 0) {
+    // 기존 자산 데이터 즉시 표시
+    const tot=S.assets.reduce((s,a)=>s+a.currentValue,0);
+    const cost=S.assets.reduce((s,a)=>s+(a.purchaseValue||a.currentValue),0);
+    const prf=tot-cost;
+    $('a-tot').textContent=fmt(tot);
+    $('a-prf').textContent=(prf>=0?'+':'')+fmt(prf);
+    $('a-prf').className='mv '+(prf>=0?'g':'r');
+    $('a-rt').textContent=cost>0?((prf/cost)*100).toFixed(1)+'%':'—';
+  } else if (!$('asset-list').children.length) {
+    $('asset-list').innerHTML = '<div class="empty">로딩 중...</div>';
+  }
   try {
     const d = await call({ action: 'getAssets' });
     S.assets = Array.isArray(d) ? d : [];
@@ -1585,7 +1628,16 @@ async function loadAssets() {
 // 목표
 // ══════════════════════════════════════════════════════
 async function loadGoals() {
-  $('goals-grid').innerHTML = '<div class="empty">로딩 중...</div>';
+  // 캐시된 목표 즉시 표시
+  const hit = MEM_CACHE['getGoals'];
+  if (hit) {
+    S.goals = hit.data;
+    $('goals-grid').innerHTML = S.goals.length
+      ? S.goals.map(g => goalCard(g)).join('')
+      : '<div class="empty"><div class="ei">🎯</div>목표를 추가해보세요</div>';
+  } else {
+    $('goals-grid').innerHTML = '<div class="empty">로딩 중...</div>';
+  }
   try {
     const d = await call({ action: 'getGoals' });
     S.goals = Array.isArray(d) ? d : [];
@@ -1688,11 +1740,19 @@ async function loadAnalysis() {
   $('donut-chart').innerHTML = '<div class="empty">로딩 중...</div>';
   $('trend-chart').innerHTML = '<div class="empty">로딩 중...</div>';
 
-  // 데이터 병렬 로드
+  // 데이터 병렬 로드 (각 월 캐시 활용)
+  $('bar-chart').innerHTML = '<div class="empty" style="padding:12px">로딩 중...</div>';
   let allData = [];
   try {
     allData = await Promise.all(
-      mList.map(m => call({ action: 'getLedger', month: m }).catch(() => []))
+      mList.map(m => {
+        const ck = 'getLedger_' + m;
+        const hit = MEM_CACHE[ck];
+        if (hit && Date.now() - hit.ts < 30000) return Promise.resolve(hit.data);
+        return call({ action: 'getLedger', month: m })
+          .then(d => { MEM_CACHE[ck] = { ts: Date.now(), data: d||[] }; return d||[]; })
+          .catch(() => []);
+      })
     );
   } catch(e) {
     $('bar-chart').innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
@@ -1933,11 +1993,15 @@ function renderPayAnalysis(monthly) {
 // 활동
 // ══════════════════════════════════════════════════════
 async function loadActivity() {
+  // 캐시된 활동 즉시 표시
+  const hit = MEM_CACHE['getActivity'];
+  if (hit) renderFeed(hit.data, 'full-feed');
   try {
     const d = await call({ action: 'getActivity' });
     renderFeed(Array.isArray(d) ? d : [], 'full-feed');
   } catch(e) {
-    $('full-feed').innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
+    if (!$('full-feed').children.length)
+      $('full-feed').innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
   }
 }
 
