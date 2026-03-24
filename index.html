@@ -1498,78 +1498,9 @@ function renderDash(d) {
   $('dash-time').textContent = d.updatedAt ? '업데이트: ' + rtime(d.updatedAt) : '';
 
   const cats = Object.entries(d.categories || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const max  = cats[0]?.[1] || 1;
-  $('cat-bars').innerHTML = cats.length
-    ? cats.map(([c, a], i) => {
-        const bgt       = d.budgets?.[c] || 0;
-        const bgtPct    = bgt ? Math.round(a / bgt * 100) : 0;
-        const over      = bgt && a > bgt;
-        const totalExp  = cats.reduce((s,[,v])=>s+v,0)||1;
-        const sharePct  = Math.round(a / totalExp * 100);
-        // 예산 바 너비 — 초과 시 100% 고정
-        const bgtBarW   = bgt ? Math.min(bgtPct, 100) : 0;
-        // 예산 상태 색상
-        const bgtColor  = !bgt ? 'var(--muted)'
-                        : bgtPct >= 100 ? 'var(--red)'
-                        : bgtPct >= 80  ? 'var(--amber)'
-                        : 'var(--green)';
-        const bgtBg     = !bgt ? 'var(--bg3)'
-                        : bgtPct >= 100 ? '#fee2e2'
-                        : bgtPct >= 80  ? '#fef3c7'
-                        : '#d1fae5';
+  renderCatBars(cats, d.budgets || {});
 
-        return \`<div class="cr"
-          onclick="showCatDrill('\${esc(c)}')"
-          style="cursor:pointer;border-radius:12px;padding:10px;margin:0 -10px;
-            transition:background .13s;-webkit-tap-highlight-color:rgba(37,99,235,.1);">
-
-          <!-- 카테고리명 + 금액 + 지출 비중 -->
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">
-            <span style="font-weight:700;font-size:14px;">\${ICONS[c]||'•'} \${c}</span>
-            <span style="display:flex;align-items:center;gap:7px;">
-              <span style="font-size:12px;font-weight:700;color:\${CLRS[i%6]};
-                background:\${CLRS[i%6]}18;padding:2px 8px;border-radius:12px;">\${sharePct}%</span>
-              <span style="font-size:14px;font-weight:800;
-                color:\${over?'var(--red)':'var(--text)'};">\${fmt(a)}원</span>
-              <span style="color:var(--accent);font-size:12px;">›</span>
-            </span>
-          </div>
-
-          <!-- 전체 지출 대비 바 (회색) -->
-          <div style="height:6px;background:var(--bg3);border-radius:3px;margin-bottom:6px;">
-            <div style="height:100%;width:\${a/max*100}%;
-              background:\${CLRS[i%6]};border-radius:3px;transition:width .4s;"></div>
-          </div>
-
-          <!-- 예산 대비 표시 -->
-          \${bgt ? \`
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <span style="font-size:11px;color:var(--muted);font-weight:500;">
-                예산 \${fmt(bgt)}원 중
-              </span>
-              <span style="font-size:12px;font-weight:800;color:\${bgtColor};
-                background:\${bgtBg};padding:2px 8px;border-radius:10px;">
-                \${bgtPct}% 사용\${over?' ⚠️':''}
-              </span>
-            </div>
-            <div style="height:5px;background:var(--bg3);border-radius:3px;">
-              <div style="height:100%;width:\${bgtBarW}%;
-                background:\${bgtColor};border-radius:3px;transition:width .4s;
-                \${over?'box-shadow:0 0 4px rgba(220,38,38,.4);':''}"></div>
-            </div>
-          \` : \`
-            <div style="font-size:11px;color:var(--border);
-              display:flex;align-items:center;gap:4px;">
-              <span>예산 미설정</span>
-              <span style="color:var(--accent);cursor:pointer;text-decoration:underline;"
-                onclick="event.stopPropagation();go('settings')">설정하기</span>
-            </div>
-          \`}
-        </div>\`;
-      }).join('')
-    : '<div class="empty"><div class="ei">📊</div>이번 달 지출 없음</div>';
-
-  const exp = d.memberExpense || {}, total = Object.values(exp).reduce((s,v) => s+v, 0) || 1;
+    const exp = d.memberExpense || {}, total = Object.values(exp).reduce((s,v) => s+v, 0) || 1;
   $('mem-bars').innerHTML = S.members.map(m => {
     const a = exp[m.name] || 0, c = m.color || '#94a3b8';
     return `<div class="mbr">
@@ -1650,6 +1581,111 @@ function showCatDrill(cat) {
         list.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px 0;">데이터 로드 실패 — 가계부 탭을 먼저 열어주세요</div>';
       });
   }
+}
+
+function renderCatBars(cats, budgets) {
+  const el = $('cat-bars');
+  if (!el) return;
+  if (!cats.length) {
+    el.innerHTML = '<div class="empty"><div class="ei">📊</div>이번 달 지출 없음</div>';
+    return;
+  }
+  const max      = cats[0][1] || 1;
+  const totalExp = cats.reduce(function(s,x){ return s + x[1]; }, 0) || 1;
+  const items    = [];
+
+  cats.forEach(function(entry, i) {
+    var c   = entry[0], a = entry[1];
+    var bgt      = budgets[c] || 0;
+    var bgtPct   = bgt ? Math.round(a / bgt * 100) : 0;
+    var over     = bgt > 0 && a > bgt;
+    var sharePct = Math.round(a / totalExp * 100);
+    var bgtBarW  = bgt ? Math.min(bgtPct, 100) : 0;
+    var bgtColor = !bgt          ? 'var(--muted)'
+                 : bgtPct >= 100 ? 'var(--red)'
+                 : bgtPct >= 80  ? 'var(--amber)'
+                 :                 'var(--green)';
+    var bgtBg    = !bgt          ? 'var(--bg3)'
+                 : bgtPct >= 100 ? '#fee2e2'
+                 : bgtPct >= 80  ? '#fef3c7'
+                 :                 '#d1fae5';
+
+    // DOM 요소 직접 생성 (문자열 템플릿 회피)
+    var wrap = document.createElement('div');
+    wrap.className = 'cr';
+    wrap.style.cssText = 'cursor:pointer;border-radius:12px;padding:10px;margin:0 -10px;transition:background .13s;';
+    wrap.addEventListener('click', (function(cat){ return function(){ showCatDrill(cat); }; })(c));
+
+    // 헤더 행
+    var header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;';
+    var nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'font-weight:700;font-size:14px;';
+    nameSpan.textContent = (ICONS[c]||'•') + ' ' + c;
+    var rightSpan = document.createElement('span');
+    rightSpan.style.cssText = 'display:flex;align-items:center;gap:7px;';
+    var pctBadge = document.createElement('span');
+    pctBadge.style.cssText = 'font-size:12px;font-weight:700;color:' + CLRS[i%6] + ';background:' + CLRS[i%6] + '18;padding:2px 8px;border-radius:12px;';
+    pctBadge.textContent = sharePct + '%';
+    var amtSpan = document.createElement('span');
+    amtSpan.style.cssText = 'font-size:14px;font-weight:800;color:' + (over ? 'var(--red)' : 'var(--text)') + ';';
+    amtSpan.textContent = fmt(a) + '원';
+    var arrow = document.createElement('span');
+    arrow.style.cssText = 'color:var(--accent);font-size:12px;';
+    arrow.textContent = '›';
+    rightSpan.appendChild(pctBadge);
+    rightSpan.appendChild(amtSpan);
+    rightSpan.appendChild(arrow);
+    header.appendChild(nameSpan);
+    header.appendChild(rightSpan);
+    wrap.appendChild(header);
+
+    // 지출 비중 바
+    var barWrap = document.createElement('div');
+    barWrap.style.cssText = 'height:6px;background:var(--bg3);border-radius:3px;margin-bottom:6px;';
+    var barFill = document.createElement('div');
+    barFill.style.cssText = 'height:100%;width:' + (a/max*100) + '%;background:' + CLRS[i%6] + ';border-radius:3px;';
+    barWrap.appendChild(barFill);
+    wrap.appendChild(barWrap);
+
+    // 예산 섹션
+    if (bgt) {
+      var bgtRow = document.createElement('div');
+      bgtRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;';
+      var bgtLabel = document.createElement('span');
+      bgtLabel.style.cssText = 'font-size:11px;color:var(--muted);';
+      bgtLabel.textContent = '예산 ' + fmt(bgt) + '원 중';
+      var bgtBadge = document.createElement('span');
+      bgtBadge.style.cssText = 'font-size:12px;font-weight:800;color:' + bgtColor + ';background:' + bgtBg + ';padding:2px 8px;border-radius:10px;';
+      bgtBadge.textContent = bgtPct + '% 사용' + (over ? ' ⚠️' : '');
+      bgtRow.appendChild(bgtLabel);
+      bgtRow.appendChild(bgtBadge);
+      wrap.appendChild(bgtRow);
+      var bgtBarWrap = document.createElement('div');
+      bgtBarWrap.style.cssText = 'height:5px;background:var(--bg3);border-radius:3px;';
+      var bgtFill = document.createElement('div');
+      bgtFill.style.cssText = 'height:100%;width:' + bgtBarW + '%;background:' + bgtColor + ';border-radius:3px;' + (over ? 'box-shadow:0 0 4px rgba(220,38,38,.4);' : '');
+      bgtBarWrap.appendChild(bgtFill);
+      wrap.appendChild(bgtBarWrap);
+    } else {
+      var nobudget = document.createElement('div');
+      nobudget.style.cssText = 'font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;';
+      var noLabel = document.createElement('span');
+      noLabel.textContent = '예산 미설정';
+      var noLink = document.createElement('span');
+      noLink.style.cssText = 'color:var(--accent);cursor:pointer;text-decoration:underline;';
+      noLink.textContent = '설정하기';
+      noLink.addEventListener('click', function(e){ e.stopPropagation(); go('settings'); });
+      nobudget.appendChild(noLabel);
+      nobudget.appendChild(noLink);
+      wrap.appendChild(nobudget);
+    }
+
+    items.push(wrap);
+  });
+
+  el.innerHTML = '';
+  items.forEach(function(item){ el.appendChild(item); });
 }
 
 function closeCatDrill() {
