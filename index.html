@@ -338,7 +338,7 @@ body{
   background:rgba(15,23,42,.55);
   backdrop-filter:blur(6px);
   -webkit-backdrop-filter:blur(6px);
-  z-index:9000;
+  z-index:10000; /* 탭바(999)보다 무조건 높음 */
   display:none; /* 기본: 완전히 제거 */
   align-items:center;
   justify-content:center;
@@ -450,37 +450,99 @@ body{
 ══════════════════════════════════════════════════════ */
 @media(max-width:600px){
   :root{--sb:0px;}
-  html,body{overflow:auto;height:auto;font-size:15px;}
-  .app{flex-direction:column;height:auto;min-height:100vh;}
 
-  /* 하단 탭바 */
+  /* ── 전체 레이아웃 ── */
+  html{height:100%;overflow:hidden;}
+  body{
+    height:100%;
+    overflow:hidden;
+    font-size:15px;
+    /* 탭바 높이만큼 하단 패딩 */
+    padding-bottom:0;
+  }
+  /* ── 전체 앱 ── */
+  html, body {
+    overflow: hidden;
+    height: 100%;
+    position: fixed;
+    width: 100%;
+  }
+  .app{
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── 메인 스크롤 영역 (탭바 위 공간) ── */
+  .main{
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    /* fixed 제거 — 탭바와 flex로 공존 */
+    position: relative;
+    z-index: 1;
+  }
+  .pg{
+    display: none;
+    padding: 14px 14px 20px;
+    min-height: 100%;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .pg.on{display: flex;}
+
+  /* ── 탭바 — flex 끝에 고정 ── */
   .sb{
-    width:100%;height:60px;flex-direction:row;
-    position:fixed;bottom:0;left:0;z-index:100;
-    border-right:none;border-top:1px solid var(--border);
-    background:var(--bg2);overflow:hidden;
-    box-shadow:0 -2px 12px rgba(15,23,42,.08);
-    padding-bottom:env(safe-area-inset-bottom);
+    flex-shrink: 0;
+    position: relative; /* fixed 제거! */
+    width: 100%;
+    height: calc(56px + env(safe-area-inset-bottom));
+    flex-direction: row;
+    z-index: 9999;
+    border-right: none;
+    border-top: 2px solid var(--border);
+    background: var(--bg2);
+    overflow: visible;
+    box-shadow: 0 -4px 20px rgba(15,23,42,.12);
   }
   .logo-w,.mem-w,.sync-w{display:none;}
-  .nav-w{display:flex;flex-direction:row;padding:4px 6px;align-items:stretch;width:100%;flex:1;gap:2px;}
+  .nav-w{
+    display: flex;
+    flex-direction: row;
+    padding: 4px 4px;
+    padding-bottom: calc(4px + env(safe-area-inset-bottom));
+    align-items: stretch;
+    width: 100%;
+    flex: 1;
+    gap: 2px;
+  }
   .ni{
-    flex:1;flex-direction:column;gap:2px;padding:5px 2px;
-    font-size:10px;font-weight:600;
-    justify-content:center;align-items:center;margin-bottom:0;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+    font-size: 10px;
+    font-weight: 600;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 0;
+    border-radius: 10px;
+    /* 터치 명시적 활성화 */
+    pointer-events: auto !important;
+    touch-action: manipulation;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
   }
-  .ni .ic{font-size:22px;width:auto;line-height:1.1;}
-  .ni span:last-child{font-size:10px;display:block;}
-  .ni.on{background:var(--acc-lt);border-radius:10px;color:var(--accent);}
-
-  /* 메인 */
-  .main{height:auto;overflow:visible;}
-  .pg{
-    display:none;
-    padding:14px 14px calc(68px + env(safe-area-inset-bottom));
-    min-height:100vh;flex-direction:column;gap:10px;
-  }
-  .pg.on{display:flex;}
+  .ni .ic{font-size: 21px; width: auto; line-height: 1.1;}
+  .ni span:last-child{font-size: 10px; display: block;}
+  .ni.on{background: var(--acc-lt); color: var(--accent);}
 
   /* 헤더 */
   .ph{flex-wrap:wrap;gap:8px;}
@@ -591,17 +653,14 @@ body{
   /* 기타 */
   .bgt-grid{grid-template-columns:1fr;}
   .toast{
-    bottom:calc(64px + env(safe-area-inset-bottom) + 10px);
-    right:12px;left:12px;text-align:center;
+    bottom:calc(68px + env(safe-area-inset-bottom) + 8px);
+    right:12px;left:12px;
+    text-align:center;
   }
   .ab{
-    top:auto;
-    bottom:calc(64px + env(safe-area-inset-bottom) + 12px);
+    top:12px;
+    bottom:auto;
     font-size:13px;
-    transform:translateX(-50%) translateY(120px); /* 아래로 숨김 */
-  }
-  .ab.on{
-    transform:translateX(-50%) translateY(0);
   }
   .vtab{padding:7px 12px;font-size:12px;}
 }
@@ -1014,7 +1073,7 @@ body{
 <div class="toast" id="toast"></div>
 <!-- 모바일 FAB 버튼 (플로팅 거래 입력) -->
 <button id="fab-btn" onclick="openTxn()"
-  style="display:none;position:fixed;right:18px;bottom:80px;z-index:90;
+  style="display:none;position:fixed;right:18px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:998;
     width:56px;height:56px;border-radius:50%;border:none;
     background:var(--accent);color:#fff;font-size:24px;
     box-shadow:0 4px 16px rgba(79,142,247,.5);cursor:pointer;
