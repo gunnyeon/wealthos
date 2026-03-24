@@ -339,22 +339,14 @@ body{
   backdrop-filter:blur(6px);
   -webkit-backdrop-filter:blur(6px);
   z-index:9000;
-  display:flex;
+  display:none; /* 기본: 완전히 제거 */
   align-items:center;
   justify-content:center;
   padding:20px;
   box-sizing:border-box;
-  /* 닫힘 상태 — 완전히 비활성화 */
-  visibility:hidden;
-  pointer-events:none;
-  opacity:0;
-  transition:opacity .15s, visibility 0s linear .15s;
 }
 .mod-bg.on{
-  visibility:visible;
-  pointer-events:auto;
-  opacity:1;
-  transition:opacity .15s, visibility 0s linear 0s;
+  display:flex !important; /* 열릴 때만 */
 }
 .mod{
   background:var(--bg2);
@@ -368,11 +360,6 @@ body{
   flex-direction:column;
   overflow:hidden;
   box-shadow:0 8px 40px rgba(0,0,0,.25);
-  transform:scale(.94) translateY(8px);
-  transition:transform .18s cubic-bezier(.34,1.56,.64,1);
-}
-.mod-bg.on .mod{
-  transform:scale(1) translateY(0);
 }
 .mod-handle{display:none;}
 .mot{
@@ -547,11 +534,10 @@ body{
 
   /* ── 모바일 모달 — 화면 중앙 배치 ── */
   .mod-bg{
+    padding:16px !important;
     align-items:center !important;
     justify-content:center !important;
-    padding:16px !important;
   }
-  /* 모바일: visibility 상속, display는 항상 flex */
   .mod{
     width:calc(100vw - 32px) !important;
     max-width:calc(100vw - 32px) !important;
@@ -559,11 +545,6 @@ body{
     height:auto !important;
     border-radius:20px !important;
     margin:0 auto !important;
-    transform:scale(.94) translateY(8px) !important;
-    transition:transform .18s cubic-bezier(.34,1.56,.64,1) !important;
-  }
-  .mod-bg.on .mod{
-    transform:scale(1) translateY(0) !important;
   }
   /* 핸들바 숨김 (중앙 팝업이라 불필요) */
   .mod-handle{ display:none !important; }
@@ -2618,21 +2599,34 @@ async function submitTxn() {
 
   // 서버 저장
   try {
-    await call(p);
+    const res = await call(p);
     S.writeTs = Date.now();
+
+    // ★ 서버에서 받은 실제 ID로 S.ledger 업데이트 (tmp- → 실제 UUID)
+    if (!editId && res && res.id) {
+      const realId = res.id;
+      S.ledger = S.ledger.map(t =>
+        t.id === tempId ? { ...t, id: realId } : t
+      );
+      // 캐시도 업데이트
+      const ck4 = 'getLedger_' + calYM();
+      if (MEM_CACHE[ck4]) MEM_CACHE[ck4] = { ts: Date.now(), data: [...S.ledger] };
+    }
+
     toast('✅ 저장됐습니다!');
     cacheInvalidate(p.action);
+    if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
     setTimeout(loadDash, 1000);
     if (isActive('assets')) loadAssets();
   } catch(e) {
     toast('저장 실패 — 다시 시도해주세요', 'err');
     // 낙관적 추가 취소
     if (!editId) {
-      S.ledger = S.ledger.filter(t => t.id !== txn.id);
+      S.ledger = S.ledger.filter(t => t.id !== tempId);
       const ck3 = 'getLedger_' + calYM();
       if (MEM_CACHE[ck3]) MEM_CACHE[ck3] = { ts: Date.now(), data: [...S.ledger] };
     }
-    if (isActive('ledger')) { renderCal(); updateMonthSum(); if(S.selDate) renderDayPanel(S.selDate); }
+    if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
   } finally {
     S.writing = false;
     btn.textContent = '저장'; btn.disabled = false;
@@ -2868,15 +2862,24 @@ function txnRow(t, showDel) {
 
 function openM(id) {
   closeAllModals();
-  $(id).classList.add('on');
+  const el = $(id);
+  if (!el) return;
+  el.style.display = 'flex';
+  el.classList.add('on');
 }
 function closeM(id) {
-  $(id).classList.remove('on');
+  const el = $(id);
+  if (!el) return;
+  el.style.display = 'none';
+  el.classList.remove('on');
 }
 function closeAllModals() {
-  document.querySelectorAll('.mod-bg.on').forEach(m => m.classList.remove('on'));
+  document.querySelectorAll('.mod-bg').forEach(el => {
+    el.style.display = 'none';
+    el.classList.remove('on');
+  });
 }
-// 백드롭 클릭으로 닫기 (visibility:hidden이라 이미 클릭 안 됨)
+// 백드롭 클릭으로 닫기
 document.querySelectorAll('.mod-bg').forEach(el => {
   el.addEventListener('click', e => {
     if (e.target === el) closeAllModals();
