@@ -419,6 +419,11 @@ body{
 }
 .vtab.on{background:var(--bg2);color:var(--accent);box-shadow:var(--sh-sm);}
 
+/* ── 대시보드 그리드 ── */
+.dash-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+.dash-metric-main{grid-column:1;}
+.dash-mid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
 /* ══════════════════════════════════════════════════════
    반응형 — 태블릿 (1100px)
 ══════════════════════════════════════════════════════ */
@@ -489,8 +494,7 @@ body{
   }
   .pg{
     display: none;
-    padding: 14px 14px 20px;
-    min-height: 100%;
+    padding: 12px 12px 24px;
     flex-direction: column;
     gap: 10px;
   }
@@ -554,12 +558,16 @@ body{
   .g3{grid-template-columns:1fr 1fr 1fr;gap:7px;}
   .g2{grid-template-columns:1fr 1fr;gap:8px;}
   .g21,.g12{grid-template-columns:1fr;gap:10px;}
+  /* 대시보드 전용 */
+  .dash-metrics{grid-template-columns:1fr 1fr;gap:8px;}
+  .dash-metric-main{grid-column:1 / -1;} /* 순자산 전체 너비 */
+  .dash-mid{grid-template-columns:1fr;gap:10px;}
 
   /* 메트릭 */
-  .m{padding:12px 14px;}
-  .ml{font-size:10px;margin-bottom:4px;}
-  .mv{font-size:18px !important;letter-spacing:-.3px;}
-  .mv.lg{font-size:22px !important;}
+  .m{padding:13px 14px;}
+  .ml{font-size:10px;margin-bottom:5px;font-weight:700;letter-spacing:.3px;}
+  .mv{font-size:17px !important;letter-spacing:-.3px;}
+  .mv.lg{font-size:24px !important;} /* 순자산 강조 */
 
   /* 카드 */
   .card{padding:13px 14px;}
@@ -703,48 +711,78 @@ body{
 
 <!-- ── 대시보드 ── -->
 <section id="pg-dash" class="pg on">
+
+  <!-- 헤더: 제목 + 거래 입력 버튼 -->
   <div class="ph">
     <div><div class="pt">가족 대시보드</div><div class="ps" id="dash-time">—</div></div>
     <button class="btn bp" onclick="openTxn()">➕ 거래 입력</button>
   </div>
-  <!-- 모바일 전용 구성원 선택 바 -->
-  <div id="mob-mem-bar" style="display:none;overflow-x:auto;white-space:nowrap;padding:2px 0;"></div>
+
+  <!-- 구성원 선택 (모바일) -->
+  <div id="mob-mem-bar" style="display:none;overflow-x:auto;white-space:nowrap;padding:4px 0;-webkit-overflow-scrolling:touch;"></div>
+
+  <!-- 경고 -->
   <div id="warn-area"></div>
-  <div class="g4">
-    <div class="m"><div class="ml">순 자산</div><div class="mv lg a" id="m-nw">—</div></div>
-    <div class="m"><div class="ml">이번 달 수입</div><div class="mv g" id="m-inc">—</div></div>
-    <div class="m"><div class="ml">이번 달 지출</div><div class="mv r" id="m-exp">—</div></div>
-    <div class="m"><div class="ml">적금 비중</div><div class="mv" id="m-sv">—</div></div>
-  </div>
-  <div class="g21" style="flex:1;min-height:0;">
-    <div class="card fl"><div class="ct">이번 달 지출</div><div id="cat-bars" style="flex:1;overflow-y:auto;"></div></div>
-    <div style="display:flex;flex-direction:column;gap:10px;min-height:0;">
-      <div class="card" style="flex:1;"><div class="ct">구성원별 지출</div><div id="mem-bars"></div></div>
-      <div class="card" style="flex:1;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <div class="ct" style="margin-bottom:0">가족 목표</div>
-          <button class="btn bs bsm" onclick="go('goals')">전체</button>
-        </div>
-        <div id="dash-goals"></div>
-      </div>
+
+  <!-- 핵심 지표 4개 — 2×2 그리드 (모바일) -->
+  <div class="dash-metrics">
+    <div class="m dash-metric-main">
+      <div class="ml">순 자산</div>
+      <div class="mv lg a" id="m-nw">—</div>
+    </div>
+    <div class="m">
+      <div class="ml">이번 달 수입</div>
+      <div class="mv g" id="m-inc">—</div>
+    </div>
+    <div class="m">
+      <div class="ml">이번 달 지출</div>
+      <div class="mv r" id="m-exp">—</div>
+    </div>
+    <div class="m">
+      <div class="ml">적금 비중</div>
+      <div class="mv" id="m-sv">—</div>
     </div>
   </div>
-  <div class="g12" style="flex:1;min-height:0;">
-    <div class="card fl">
+
+  <!-- 카테고리 지출 -->
+  <div class="card">
+    <div class="ct">이번 달 지출 카테고리</div>
+    <div id="cat-bars"></div>
+  </div>
+
+  <!-- 구성원별 지출 + 목표 (2열, 모바일은 1열) -->
+  <div class="dash-mid">
+    <div class="card">
+      <div class="ct">구성원별 지출</div>
+      <div id="mem-bars"></div>
+    </div>
+    <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div class="ct" style="margin-bottom:0">최근 거래</div>
-        <button class="btn bs bsm" onclick="go('ledger')">전체</button>
+        <div class="ct" style="margin-bottom:0">가족 목표</div>
+        <button class="btn bs bsm" onclick="go('goals')">전체</button>
       </div>
-      <div class="tl" id="dash-txns" style="flex:1;overflow-y:auto;"></div>
-    </div>
-    <div class="card fl">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div class="ct" style="margin-bottom:0">실시간 활동</div>
-        <span class="badge ba" id="feed-badge">—</span>
-      </div>
-      <div class="feed" id="live-feed" style="flex:1;"></div>
+      <div id="dash-goals"></div>
     </div>
   </div>
+
+  <!-- 최근 거래 -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div class="ct" style="margin-bottom:0">최근 거래</div>
+      <button class="btn bs bsm" onclick="go('ledger')">전체</button>
+    </div>
+    <div class="tl" id="dash-txns"></div>
+  </div>
+
+  <!-- 실시간 활동 -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div class="ct" style="margin-bottom:0">실시간 활동</div>
+      <span class="badge ba" id="feed-badge">—</span>
+    </div>
+    <div class="feed" id="live-feed"></div>
+  </div>
+
 </section>
 
 <!-- ── 가계부 (달력형) ── -->
@@ -882,26 +920,22 @@ body{
 
 <!-- ── 설정 ── -->
 <section id="pg-settings" class="pg">
-  <div class="ph"><div class="pt">설정</div><div class="ps">API 연결, 구성원, 카테고리, 예산 관리</div></div>
+  <div class="ph"><div class="pt">설정</div><div class="ps">구성원 · 예산 · 카테고리 관리</div></div>
 
-  <!-- API URL 연결 -->
-  <div class="card" style="border:1.5px solid #bfdbfe;background:#eff6ff;">
-    <div class="ct" style="color:var(--accent)">🔗 Apps Script API 연결</div>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
-      Apps Script 배포 URL을 입력하세요. 한 번만 입력하면 저장됩니다.
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <input class="fi2" id="api-url-input" placeholder="https://script.google.com/macros/s/.../exec" style="flex:1;min-width:200px;">
-      <button class="btn bp" onclick="saveApiUrl()">저장 & 연결</button>
-    </div>
-    <div id="api-url-status" style="font-size:12px;margin-top:8px;"></div>
+  <!-- API 연결 -->
+  <div class="card" style="border:1.5px solid #bfdbfe;background:#eff6ff;flex-shrink:0;">
+    <div class="ct" style="color:var(--accent);margin-bottom:8px;">🔗 Apps Script 연결</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">배포 URL을 한 번만 입력하면 저장됩니다.</div>
+    <input class="fi2" id="api-url-input" placeholder="https://script.google.com/macros/s/.../exec" style="margin-bottom:8px;">
+    <button class="btn bp" style="width:100%;" onclick="saveApiUrl()">저장 & 연결 테스트</button>
+    <div id="api-url-status" style="font-size:12px;margin-top:6px;"></div>
   </div>
 
-  <!-- 가족 구성원 -->
-  <div class="card">
+  <!-- 구성원 -->
+  <div class="card" style="flex-shrink:0;">
     <div class="ct">가족 구성원</div>
     <div id="mem-list"></div>
-    <button class="btn bs bsm" style="margin-top:10px;" onclick="openAddMem()">👤 구성원 추가</button>
+    <button class="btn bs bsm" style="margin-top:10px;width:100%;" onclick="openAddMem()">👤 구성원 추가</button>
   </div>
 
   <!-- 카테고리 관리 -->
@@ -936,11 +970,11 @@ body{
   </div>
 
   <!-- 월별 예산 -->
-  <div class="card fl">
+  <div class="card" style="flex-shrink:0;">
     <div class="ct">월별 예산 설정 (원)</div>
-    <div class="bgt-grid" id="bgt-form" style="margin-top:10px;overflow-y:auto;overflow-x:hidden;flex:1;"></div>
-    <div style="margin-top:14px;text-align:right;flex-shrink:0;">
-      <button class="btn bp" onclick="saveBudgets()">💾 예산 저장</button>
+    <div class="bgt-grid" id="bgt-form" style="margin-top:10px;"></div>
+    <div style="margin-top:14px;">
+      <button class="btn bp" style="width:100%;" onclick="saveBudgets()">💾 예산 저장</button>
     </div>
   </div>
 </section>
