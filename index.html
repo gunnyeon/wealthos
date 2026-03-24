@@ -308,7 +308,7 @@ body{
   display:flex;align-items:center;gap:9px;
   box-shadow:var(--sh-lg);
   transition:transform .4s cubic-bezier(.34,1.56,.64,1);
-  z-index:600;white-space:nowrap;
+  z-index:150;white-space:nowrap;
   opacity:0;pointer-events:none;
 }
 .ab.on{
@@ -324,7 +324,7 @@ body{
   font-size:14px;font-weight:600;
   box-shadow:var(--sh-lg);
   transform:translateY(80px);opacity:0;
-  transition:all .3s cubic-bezier(.34,1.56,.64,1);z-index:999;
+  transition:all .3s cubic-bezier(.34,1.56,.64,1);z-index:200;
   max-width:320px;
 }
 .toast.on{transform:translateY(0);opacity:1;}
@@ -338,17 +338,16 @@ body{
   background:rgba(15,23,42,.5);
   backdrop-filter:blur(8px);
   -webkit-backdrop-filter:blur(8px);
-  z-index:400; /* 탭바(300)보다 높음 */
-  display:flex;
+  z-index:9000; /* 탭바/FAB보다 무조건 높게 */
+  display:none; /* opacity 대신 display로 완전 제거 */
   align-items:center;
   justify-content:center;
-  padding:16px;
-  opacity:0;
-  pointer-events:none;
-  transition:opacity .2s;
+  padding:20px;
   box-sizing:border-box;
 }
-.mod-bg.on{opacity:1;pointer-events:all;}
+.mod-bg.on{
+  display:flex; /* 열릴 때만 표시 */
+}
 .mod{
   background:var(--bg2);
   border:1px solid var(--border);
@@ -369,6 +368,9 @@ body{
   transform:scale(1);
   opacity:1;
 }
+/* 모달 애니메이션 — display:flex 전환 후 keyframe으로 */
+@keyframes modIn{from{transform:scale(.93);opacity:0}to{transform:scale(1);opacity:1}}
+.mod-bg.on .mod{animation:modIn .18s ease forwards;}
 .mod-handle{display:none;}
 .mot{
   font-size:18px;font-weight:800;
@@ -464,7 +466,7 @@ body{
   /* 하단 탭바 */
   .sb{
     width:100%;height:60px;flex-direction:row;
-    position:fixed;bottom:0;left:0;z-index:300;
+    position:fixed;bottom:0;left:0;z-index:100;
     border-right:none;border-top:1px solid var(--border);
     background:var(--bg2);overflow:hidden;
     box-shadow:0 -2px 12px rgba(15,23,42,.08);
@@ -544,7 +546,10 @@ body{
   .mod-bg{
     align-items:center !important;
     justify-content:center !important;
-    padding:20px !important;
+    padding:16px !important;
+  }
+  .mod-bg.on{
+    display:flex !important;
   }
   .mod{
     width:100% !important;
@@ -1032,7 +1037,7 @@ body{
 <div class="toast" id="toast"></div>
 <!-- 모바일 FAB 버튼 (플로팅 거래 입력) -->
 <button id="fab-btn" onclick="openTxn()"
-  style="display:none;position:fixed;right:18px;bottom:80px;z-index:250;
+  style="display:none;position:fixed;right:18px;bottom:80px;z-index:90;
     width:56px;height:56px;border-radius:50%;border:none;
     background:var(--accent);color:#fff;font-size:24px;
     box-shadow:0 4px 16px rgba(79,142,247,.5);cursor:pointer;
@@ -1099,6 +1104,8 @@ const S = {
   budgets: {},
   poll_ts: new Date(0).toISOString(),
   timer:   null,
+  writing: false, // 쓰기 작업 진행 중 플래그 (덮어쓰기 방지)
+  writeTs: 0,     // 마지막 쓰기 완료 시각
   // 달력
   calYear:  new Date().getFullYear(),
   calMonth: new Date().getMonth(),  // 0-indexed
@@ -1254,10 +1261,10 @@ async function doPoll() {
     setSyncState('live');
     if (d.hasChanges) {
       (d.newTransactions || []).forEach(t => {
-        if (t.member !== S.me) {
+        // 쓰기 중이거나 쓰기 직후면 폴링으로 덮어쓰기 차단
+        if (t.member !== S.me && !S.writing && Date.now() - S.writeTs > 3000) {
           showAlert(`${t.member} · ${t.category} ${fmt(t.amount)}원`, '🔔');
           prependTxnRow(t, 'dash-txns');
-          // 달력 해당 날짜 업데이트
           if (isActive('ledger')) refreshCalDay(t.date);
         }
       });
@@ -1444,24 +1451,35 @@ function renderDash(d) {
 async function loadLedger() {
   renderCalHeader();
   const ym = calYM();
-  // 캐시 키: 월별로 구분
   const cacheKey = 'getLedger_' + ym;
-  const hit = MEM_CACHE[cacheKey];
 
-  // 캐시된 데이터 즉시 렌더 (서버 응답 전에 먼저 표시)
-  if (hit && Date.now() - hit.ts < 20000) {
-    S.ledger = hit.data;
+  // 항상 현재 S.ledger로 즉시 렌더 (캐시/낙관적 데이터 유지)
+  if (S.ledger.length > 0) {
     renderCal(); updateMonthSum();
     if (S.selDate) renderDayPanel(S.selDate);
   } else {
-    $('cal-grid').innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--muted);font-size:14px;">🔄 불러오는 중...</div>';
+    const hit = MEM_CACHE[cacheKey];
+    if (hit) {
+      S.ledger = hit.data;
+      renderCal(); updateMonthSum();
+    } else {
+      $('cal-grid').innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--muted);font-size:14px;">🔄 불러오는 중...</div>';
+    }
   }
+
+  // 쓰기 작업 직후 3초간 서버 재조회 차단 (낙관적 데이터 보호)
+  if (S.writing || Date.now() - S.writeTs < 3000) return;
+
   try {
     const d = await call({ action: 'getLedger', month: ym });
-    MEM_CACHE[cacheKey] = { ts: Date.now(), data: Array.isArray(d) ? d : [] };
-    S.ledger = MEM_CACHE[cacheKey].data;
-    renderCal(); updateMonthSum();
-    if (S.selDate) renderDayPanel(S.selDate);
+    const newData = Array.isArray(d) ? d : [];
+    MEM_CACHE[cacheKey] = { ts: Date.now(), data: newData };
+    // 쓰기 직후면 서버 데이터로 덮어쓰지 않음
+    if (!S.writing && Date.now() - S.writeTs >= 3000) {
+      S.ledger = newData;
+      renderCal(); updateMonthSum();
+      if (S.selDate) renderDayPanel(S.selDate);
+    }
   } catch(e) {
     if (!S.ledger.length) {
       $('cal-grid').innerHTML = `<div style="grid-column:1/-1" class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
@@ -2449,20 +2467,27 @@ async function deleteTxnFromModal() {
 이 작업은 되돌릴 수 없습니다.`)) return;
 
   closeM('mod-txn');
+  S.writing = true;
   const backup = [...S.ledger];
   S.ledger = S.ledger.filter(t => t.id !== id);
+  const ck = 'getLedger_' + calYM();
+  if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...S.ledger] };
   if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
   toast('삭제 중...');
 
   try {
     await call({ action: 'deleteTransaction', id, desc, member: S.me, assetId });
+    S.writeTs = Date.now();
     toast('🗑️ 삭제됐습니다');
     cacheInvalidate('deleteTransaction');
-    setTimeout(loadDash, 300);
+    setTimeout(loadDash, 1000);
   } catch(err) {
     S.ledger = backup;
+    if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...backup] };
     if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
     toast('삭제 실패 — 다시 시도해주세요', 'err');
+  } finally {
+    S.writing = false;
   }
 }
 
@@ -2565,8 +2590,9 @@ async function submitTxn() {
   const tempId = 'tmp-' + Date.now();
   const txn = { ...p, id: tempId, amount: Number(p.amount), createdAt: new Date().toISOString() };
 
+  S.writing = true; // 쓰기 시작
   closeM('mod-txn');
-  toast('✅ 저장됐습니다!');
+  toast('저장 중...');
 
   if (editId) {
     // 수정 모드: S.ledger 해당 항목 교체
@@ -2597,15 +2623,22 @@ async function submitTxn() {
   // 서버 저장
   try {
     await call(p);
+    S.writeTs = Date.now();
+    toast('✅ 저장됐습니다!');
     cacheInvalidate(p.action);
-    setTimeout(loadDash, 300);
+    setTimeout(loadDash, 1000);
     if (isActive('assets')) loadAssets();
   } catch(e) {
-    toast('저장 실패: ' + e.message + ' — 다시 시도해주세요', 'err');
-    // 저장 실패 시 낙관적 추가 취소
-    S.ledger = S.ledger.filter(t => t.id !== txn.id && t.id !== (editId || ''));
+    toast('저장 실패 — 다시 시도해주세요', 'err');
+    // 낙관적 추가 취소
+    if (!editId) {
+      S.ledger = S.ledger.filter(t => t.id !== txn.id);
+      const ck3 = 'getLedger_' + calYM();
+      if (MEM_CACHE[ck3]) MEM_CACHE[ck3] = { ts: Date.now(), data: [...S.ledger] };
+    }
     if (isActive('ledger')) { renderCal(); updateMonthSum(); if(S.selDate) renderDayPanel(S.selDate); }
   } finally {
+    S.writing = false;
     btn.textContent = '저장'; btn.disabled = false;
   }
 }
@@ -2624,22 +2657,28 @@ async function delTxn(id, desc, assetId, e) {
   if (e) e.stopPropagation();
   if (!confirm(`"${desc}" 거래를 삭제할까요?`)) return;
 
-  // 낙관적 UI — 즉시 화면에서 숨기기 (실패 시 복원)
+  S.writing = true; // 쓰기 시작
   const backup = [...S.ledger];
   S.ledger = S.ledger.filter(t => t.id !== id);
+  // 캐시도 즉시 반영
+  const ck = 'getLedger_' + calYM();
+  if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...S.ledger] };
   if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
   toast('삭제 중...');
 
   try {
     await call({ action: 'deleteTransaction', id, desc, member: S.me, assetId: assetId || '' });
+    S.writeTs = Date.now();
     toast('🗑️ 삭제됐습니다');
     cacheInvalidate('deleteTransaction');
-    setTimeout(loadDash, 300);
+    setTimeout(loadDash, 1000);
   } catch(err) {
-    // 실패 시 원복
     S.ledger = backup;
+    if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...backup] };
     if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
-    toast('삭제 실패: ' + err.message + ' (다시 시도해주세요)', 'err');
+    toast('삭제 실패 — 다시 시도해주세요', 'err');
+  } finally {
+    S.writing = false; // 쓰기 완료
   }
 }
 
@@ -2832,38 +2871,23 @@ function txnRow(t, showDel) {
 }
 
 function openM(id) {
-  // 기존 열린 모달 모두 닫기
-  document.querySelectorAll('.mod-bg.on').forEach(m => m.classList.remove('on'));
+  closeAllModals(); // 기존 모달 먼저 닫기
   $(id).classList.add('on');
 }
 function closeM(id) {
   $(id).classList.remove('on');
-  // 항상 body overflow 복원 (모바일 탭바 먹통 방지)
-  document.body.style.overflow = '';
-  document.body.style.position = '';
-  document.documentElement.style.overflow = '';
 }
 function closeAllModals() {
   document.querySelectorAll('.mod-bg.on').forEach(m => m.classList.remove('on'));
-  document.body.style.overflow = '';
-  document.body.style.position = '';
-  document.documentElement.style.overflow = '';
 }
-// 백드롭 터치/클릭으로 닫기
+// 백드롭 클릭/터치로 닫기
 document.querySelectorAll('.mod-bg').forEach(el => {
-  // touchstart로 즉시 반응 (touchend보다 빠름)
-  el.addEventListener('touchstart', e => {
-    if (e.target === el) {
-      e.preventDefault();
-      closeAllModals();
-    }
-  }, { passive: false });
   el.addEventListener('click', e => {
     if (e.target === el) closeAllModals();
   });
 });
-// 뒤로가기 버튼으로 모달 닫기 (안드로이드)
-window.addEventListener('popstate', () => closeAllModals());
+// 안드로이드 뒤로가기
+window.addEventListener('popstate', closeAllModals);
 
 let toastT;
 function toast(msg, type = 'ok') {
