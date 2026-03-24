@@ -922,10 +922,15 @@ body{
       <div id="anal-drill-list" class="tl"></div>
     </div>
   </div>
-  <!-- 월별 추세 -->
+  <!-- 카테고리별 금액/비중 -->
   <div class="card">
-    <div class="ct">카테고리별 월별 추세</div>
+    <div class="ct">지출 카테고리별 금액 · 비중</div>
     <div id="trend-chart"></div>
+  </div>
+  <!-- 수입 분석 -->
+  <div class="card">
+    <div class="ct">수입 유형별 금액 · 비중</div>
+    <div id="income-chart"></div>
   </div>
   <!-- 결제수단별 분석 -->
   <div class="card" style="flex-shrink:0;">
@@ -1497,26 +1502,30 @@ function renderDash(d) {
   $('cat-bars').innerHTML = cats.length
     ? cats.map(([c, a], i) => {
         const bgt = d.budgets?.[c] || 0, over = bgt && a > bgt;
+        const totalExp = cats.reduce((s,[,v])=>s+v,0)||1;
+        const pct = Math.round(a/totalExp*100);
         return `<div class="cr"
           onclick="showCatDrill('${esc(c)}')"
           style="cursor:pointer;border-radius:10px;padding:8px;margin:0 -8px;
             transition:background .13s;-webkit-tap-highlight-color:rgba(37,99,235,.1);">
           <div class="ch" style="margin-bottom:6px;">
             <span class="cn" style="font-weight:700;font-size:14px;">
-              ${ICONS[c] || '•'} ${c}
+              ${ICONS[c]||'•'} ${c}
             </span>
-            <span style="display:flex;align-items:center;gap:6px;">
+            <span style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:12px;font-weight:700;color:${CLRS[i%6]};
+                background:${CLRS[i%6]}18;padding:2px 7px;border-radius:12px;">${pct}%</span>
               <span class="ca" style="font-size:14px;font-weight:800;
-                color:${over ? 'var(--red)' : 'var(--text)'};">${fmt(a)}원</span>
+                color:${over?'var(--red)':'var(--text)'};">${fmt(a)}원</span>
               <span style="font-size:11px;color:var(--accent);">›</span>
             </span>
           </div>
           <div class="ctr" style="height:8px;">
             <div class="cf" style="width:${a/max*100}%;
-              background:${over ? 'var(--red)' : CLRS[i%6]};height:100%;"></div>
+              background:${over?'var(--red)':CLRS[i%6]};height:100%;"></div>
           </div>
-          ${bgt ? `<div class="cp" style="font-size:11px;color:${over?'var(--red)':'var(--muted)'};
-            margin-top:3px;">예산 ${Math.round(a/bgt*100)}% 사용</div>` : ''}
+          ${bgt?`<div class="cp" style="font-size:11px;color:${over?'var(--red)':'var(--muted)'};
+            margin-top:3px;">예산 ${Math.round(a/bgt*100)}% 사용</div>`:''}
         </div>`;
       }).join('')
     : '<div class="empty"><div class="ei">📊</div>이번 달 지출 없음</div>';
@@ -1874,55 +1883,87 @@ async function loadAssets() {
       '적금/보험':  { bg:'rgba(251,146,60,.12)',   border:'rgba(251,146,60,.35)',  text:'#fb923c' },
       '기타':       { bg:'rgba(148,163,184,.12)',  border:'rgba(148,163,184,.35)', text:'#94a3b8' },
     };
+    // 열림/닫힘 상태 유지
+    if (!S._assetOpen) S._assetOpen = {};
+    // 처음엔 첫 번째 유형만 열기
+    if (Object.keys(S._assetOpen).length === 0) {
+      const firstType = Object.keys(byType)[0];
+      if (firstType) S._assetOpen[firstType] = true;
+    }
+
     $('asset-list').innerHTML = S.assets.length
       ? Object.entries(byType).map(([type, items]) => {
           const subtotal = items.reduce((s, a) => s + a.currentValue, 0);
           const subCost  = items.reduce((s, a) => s + (a.purchaseValue || a.currentValue), 0);
           const subPrf   = subtotal - subCost;
-          const clr = TYPE_COLORS[type] || TYPE_COLORS['기타'];
-          return `<div style="margin-bottom:20px">
-            <!-- 유형 헤더 + 소계 (색 구분) -->
-            <div style="display:flex;justify-content:space-between;align-items:center;
-              padding:10px 14px;
-              background:${clr.bg};
-              border:1px solid ${clr.border};
-              border-radius:var(--rs);
-              margin-bottom:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:18px">${aIcon(type)}</span>
+          const clr  = TYPE_COLORS[type] || TYPE_COLORS['기타'];
+          const open = S._assetOpen[type] !== false; // 기본 열림
+          const safeType = esc(type);
+          return `<div style="margin-bottom:10px;border-radius:var(--r);overflow:hidden;border:1.5px solid ${clr.border};">
+            <!-- 헤더 — 클릭으로 토글 -->
+            <div onclick="toggleAssetType('${safeType}')"
+              style="display:flex;justify-content:space-between;align-items:center;
+                padding:12px 16px;background:${clr.bg};cursor:pointer;
+                -webkit-tap-highlight-color:rgba(0,0,0,.05);">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:20px">${aIcon(type)}</span>
                 <div>
                   <div style="font-size:14px;font-weight:700;color:${clr.text}">${type}</div>
-                  <div style="font-size:11px;color:var(--muted);margin-top:1px">${items.length}개 항목</div>
+                  <div style="font-size:11px;color:var(--muted)">${items.length}개 항목</div>
                 </div>
               </div>
-              <div style="text-align:right">
-                <div style="font-size:16px;font-weight:800;color:${clr.text}">${fmt(subtotal)}원</div>
-                ${subPrf !== 0 ? `<div style="font-size:11px;color:${subPrf>=0?'var(--green)':'var(--red);font-weight:600'}">
-                  ${subPrf>=0?'▲ +':'▼ '}${fmt(Math.abs(subPrf))}원</div>` : ''}
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="text-align:right">
+                  <div style="font-size:15px;font-weight:800;color:${clr.text}">${fmt(subtotal)}원</div>
+                  ${subPrf !== 0 ? `<div style="font-size:11px;font-weight:600;
+                    color:${subPrf>=0?'var(--green)':'var(--red)'}">
+                    ${subPrf>=0?'▲ +':'▼ '}${fmt(Math.abs(subPrf))}원</div>` : ''}
+                </div>
+                <span style="font-size:18px;color:${clr.text};transition:transform .2s;
+                  transform:rotate(${open?'180':'0'}deg);display:inline-block;">
+                  ▾
+                </span>
               </div>
             </div>
-            <!-- 항목 목록 -->
-            ${items.map(a => {
-              const r = a.purchaseValue > 0
-                ? ((a.currentValue - a.purchaseValue) / a.purchaseValue * 100).toFixed(1) : null;
-              return `<div class="ti" style="margin-left:8px;"
-                onclick="openEditAsset('${esc(a.id)}','${esc(a.name)}','${esc(a.type)}','${esc(a.institution || '')}',${a.currentValue},${a.purchaseValue},'${esc(a.memo || '')}')">
-                <div class="tif">
-                  <div class="tin">${a.name}</div>
-                  <div class="tic2">${a.institution || '-'}${a.memo ? ' · ' + a.memo : ''}</div>
-                </div>
-                <div style="text-align:right">
-                  <div style="font-weight:700;font-size:14px">${fmt(a.currentValue)}원</div>
-                  ${r !== null ? `<div style="font-size:11px;color:${Number(r)>=0?'var(--green)':'var(--red)'}">
-                    ${Number(r)>=0?'+':''}${r}%</div>` : ''}
-                </div>
-              </div>`;
-            }).join('')}
+            <!-- 항목 목록 — 아코디언 -->
+            <div id="asset-type-${safeType}"
+              style="display:${open?'block':'none'};background:var(--bg2);">
+              ${items.map(a => {
+                const r = a.purchaseValue > 0
+                  ? ((a.currentValue - a.purchaseValue) / a.purchaseValue * 100).toFixed(1) : null;
+                return `<div class="ti" style="border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0;"
+                  onclick="openEditAsset('${esc(a.id)}','${esc(a.name)}','${esc(a.type)}','${esc(a.institution||'')}',${a.currentValue},${a.purchaseValue},'${esc(a.memo||'')}')">
+                  <div class="tif">
+                    <div class="tin">${a.name}</div>
+                    <div class="tic2">${a.institution||'-'}${a.memo?' · '+a.memo:''}</div>
+                  </div>
+                  <div style="text-align:right;flex-shrink:0;">
+                    <div style="font-weight:700;font-size:14px">${fmt(a.currentValue)}원</div>
+                    ${r!==null?`<div style="font-size:11px;color:${Number(r)>=0?'var(--green)':'var(--red)'}">
+                      ${Number(r)>=0?'+':''}${r}%</div>`:''}
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>
           </div>`;
         }).join('')
       : '<div class="empty"><div class="ei">🏦</div>자산을 추가해보세요</div>';
   } catch(e) {
     $('asset-list').innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
+  }
+}
+
+function toggleAssetType(type) {
+  if (!S._assetOpen) S._assetOpen = {};
+  S._assetOpen[type] = !S._assetOpen[type];
+  const el = $('asset-type-' + type);
+  if (!el) return;
+  el.style.display = S._assetOpen[type] ? 'block' : 'none';
+  // 화살표 회전
+  const header = el.previousElementSibling;
+  if (header) {
+    const arrow = header.querySelector('span:last-child');
+    if (arrow) arrow.style.transform = S._assetOpen[type] ? 'rotate(180deg)' : 'rotate(0deg)';
   }
 }
 
@@ -2203,23 +2244,109 @@ async function loadAnalysis() {
     : '<div class="empty" style="padding:16px 0">지출 없음</div>';
 
   // 카테고리 추세
-  const topCats = Object.entries(
-    monthly.reduce((acc,d) => { Object.entries(d.cats).forEach(([c,a]) => { acc[c]=(acc[c]||0)+a; }); return acc; }, {})
-  ).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([c])=>c);
+  // ── 지출 카테고리 금액+비중 테이블 ──────────────────────────
+  const catTotals = monthly.reduce((acc,d) => {
+    Object.entries(d.cats).forEach(([c,a]) => { acc[c]=(acc[c]||0)+a; });
+    return acc;
+  }, {});
+  const catEntries3 = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+  const totalExp3 = catEntries3.reduce((s,[,v])=>s+v,0)||1;
 
-  $('trend-chart').innerHTML = topCats.map((cat,ci) => {
-    const vals = monthly.map(d => d.cats[cat]||0);
-    const maxV = Math.max(...vals,1);
-    return `<div style="margin-bottom:14px;">
-      <div style="font-size:12px;font-weight:600;margin-bottom:5px;color:${CLRS[ci%8]}">${ICONS[cat]||'•'} ${cat}</div>
-      <div style="display:flex;align-items:flex-end;gap:3px;height:44px;">
-        ${vals.map((v,i)=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;">
-          <div style="width:100%;height:${Math.round(v/maxV*36)}px;background:${CLRS[ci%8]};border-radius:3px 3px 0 0;opacity:.8;min-height:${v>0?3:0}px;"></div>
-          <div style="font-size:9px;color:var(--muted);">${monthly[i].label}</div>
-        </div>`).join('')}
-      </div>
-    </div>`;
-  }).join('') || '<div class="empty" style="padding:12px 0">데이터 없음</div>';
+  $('trend-chart').innerHTML = catEntries3.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border);">
+            <th style="text-align:left;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">카테고리</th>
+            <th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">금액</th>
+            <th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">비중</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${catEntries3.map(([c,a],i)=>{
+            const pct=Math.round(a/totalExp3*100);
+            return `<tr style="border-bottom:1px solid var(--border);cursor:pointer;"
+              onclick="showAnalDrill('${esc(c)}',monthly)"
+              onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+              <td style="padding:9px 8px;font-weight:600;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span style="width:8px;height:8px;border-radius:50%;background:${CLRS[i%8]};flex-shrink:0;display:inline-block;"></span>
+                  ${ICONS[c]||'•'} ${c}
+                </div>
+                <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:4px;">
+                  <div style="width:${pct}%;height:100%;background:${CLRS[i%8]};border-radius:2px;"></div>
+                </div>
+              </td>
+              <td style="padding:9px 8px;text-align:right;font-weight:700;color:var(--red);">${fmt(a)}원</td>
+              <td style="padding:9px 8px;text-align:right;">
+                <span style="font-weight:700;color:${CLRS[i%8]};background:${CLRS[i%8]}18;
+                  padding:2px 7px;border-radius:12px;font-size:12px;">${pct}%</span>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--border);background:var(--bg3);">
+            <td style="padding:9px 8px;font-weight:800;">합계</td>
+            <td style="padding:9px 8px;text-align:right;font-weight:800;color:var(--red);">${fmt(totalExp3)}원</td>
+            <td style="padding:9px 8px;text-align:right;font-weight:700;color:var(--muted);">100%</td>
+          </tr>
+        </tfoot>
+      </table>`
+    : '<div class="empty" style="padding:12px 0">데이터 없음</div>';
+
+  // ── 수입 유형별 금액+비중 ────────────────────────────────────
+  const incChart = $('income-chart');
+  if (incChart) {
+    const incTotals = monthly.reduce((acc,d) => {
+      (d.rows||[]).filter(t=>t.type==='수입').forEach(t=>{
+        acc[t.category]=(acc[t.category]||0)+t.amount;
+      });
+      return acc;
+    }, {});
+    const incEntries = Object.entries(incTotals).sort((a,b)=>b[1]-a[1]);
+    const totalInc = incEntries.reduce((s,[,v])=>s+v,0)||1;
+    const INC_CLRS = ['#059669','#2563eb','#d97706','#7c3aed','#0891b2','#db2777'];
+
+    incChart.innerHTML = incEntries.length
+      ? `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);">
+              <th style="text-align:left;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">수입 유형</th>
+              <th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">금액</th>
+              <th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">비중</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${incEntries.map(([c,a],i)=>{
+              const pct=Math.round(a/totalInc*100);
+              return `<tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:9px 8px;font-weight:600;">
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${INC_CLRS[i%6]};flex-shrink:0;display:inline-block;"></span>
+                    ${ICONS[c]||'•'} ${c}
+                  </div>
+                  <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:4px;">
+                    <div style="width:${pct}%;height:100%;background:${INC_CLRS[i%6]};border-radius:2px;"></div>
+                  </div>
+                </td>
+                <td style="padding:9px 8px;text-align:right;font-weight:700;color:var(--green);">+${fmt(a)}원</td>
+                <td style="padding:9px 8px;text-align:right;">
+                  <span style="font-weight:700;color:${INC_CLRS[i%6]};background:${INC_CLRS[i%6]}18;
+                    padding:2px 7px;border-radius:12px;font-size:12px;">${pct}%</span>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top:2px solid var(--border);background:var(--bg3);">
+              <td style="padding:9px 8px;font-weight:800;">합계</td>
+              <td style="padding:9px 8px;text-align:right;font-weight:800;color:var(--green);">+${fmt(totalInc)}원</td>
+              <td style="padding:9px 8px;text-align:right;font-weight:700;color:var(--muted);">100%</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<div class="empty" style="padding:12px 0">수입 없음</div>';
+  }
 
   // 결제수단별 분석 (공통)
   renderPayAnalysis(monthly);
