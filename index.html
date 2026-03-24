@@ -712,14 +712,19 @@ body{
 <!-- ── 대시보드 ── -->
 <section id="pg-dash" class="pg on">
 
-  <!-- 헤더: 제목 + 거래 입력 버튼 -->
-  <div class="ph">
-    <div><div class="pt">가족 대시보드</div><div class="ps" id="dash-time">—</div></div>
-    <button class="btn bp" onclick="openTxn()">➕ 거래 입력</button>
+  <!-- 헤더 -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0;">
+    <div>
+      <div class="pt">가족 대시보드</div>
+      <div class="ps" id="dash-time">—</div>
+    </div>
+    <button class="btn bp" style="flex-shrink:0;white-space:nowrap;" onclick="openTxn()">➕ 거래 입력</button>
   </div>
 
-  <!-- 구성원 선택 (모바일) -->
-  <div id="mob-mem-bar" style="display:none;overflow-x:auto;white-space:nowrap;padding:4px 0;-webkit-overflow-scrolling:touch;"></div>
+  <!-- 구성원 선택 바 (모바일) — 가로 스크롤 -->
+  <div id="mob-mem-bar"
+    style="display:none;overflow-x:auto;-webkit-overflow-scrolling:touch;
+      white-space:nowrap;padding:2px 0;flex-shrink:0;"></div>
 
   <!-- 경고 -->
   <div id="warn-area"></div>
@@ -744,10 +749,25 @@ body{
     </div>
   </div>
 
-  <!-- 카테고리 지출 -->
+  <!-- 카테고리 지출 + 드릴다운 -->
   <div class="card">
-    <div class="ct">이번 달 지출 카테고리</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div class="ct" style="margin-bottom:0;">이번 달 지출 카테고리</div>
+      <span style="font-size:11px;color:var(--muted);">눌러서 상세 보기 👆</span>
+    </div>
     <div id="cat-bars"></div>
+    <!-- 드릴다운 패널 -->
+    <div id="cat-drill" style="display:none;margin-top:14px;padding-top:14px;border-top:1.5px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div id="cat-drill-title" style="font-size:14px;font-weight:700;"></div>
+        <button onclick="closeCatDrill()"
+          style="background:var(--bg3);border:none;color:var(--muted);
+            font-size:14px;cursor:pointer;padding:4px 10px;border-radius:8px;font-weight:600;">
+          닫기
+        </button>
+      </div>
+      <div id="cat-drill-list" class="tl"></div>
+    </div>
   </div>
 
   <!-- 구성원별 지출 + 목표 (2열, 모바일은 1열) -->
@@ -1477,15 +1497,26 @@ function renderDash(d) {
   $('cat-bars').innerHTML = cats.length
     ? cats.map(([c, a], i) => {
         const bgt = d.budgets?.[c] || 0, over = bgt && a > bgt;
-        return `<div class="cr" onclick="showCatDrill('${c}')"
-          style="cursor:pointer;border-radius:8px;padding:4px;margin:-4px;transition:background .13s;"
-          onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-          <div class="ch">
-            <span class="cn" style="font-weight:600;">${ICONS[c] || '•'} ${c}</span>
-            <span class="ca" style="color:${over ? 'var(--red)' : 'var(--text2)'}">${fmt(a)}원</span>
+        return `<div class="cr"
+          onclick="showCatDrill('${esc(c)}')"
+          style="cursor:pointer;border-radius:10px;padding:8px;margin:0 -8px;
+            transition:background .13s;-webkit-tap-highlight-color:rgba(37,99,235,.1);">
+          <div class="ch" style="margin-bottom:6px;">
+            <span class="cn" style="font-weight:700;font-size:14px;">
+              ${ICONS[c] || '•'} ${c}
+            </span>
+            <span style="display:flex;align-items:center;gap:6px;">
+              <span class="ca" style="font-size:14px;font-weight:800;
+                color:${over ? 'var(--red)' : 'var(--text)'};">${fmt(a)}원</span>
+              <span style="font-size:11px;color:var(--accent);">›</span>
+            </span>
           </div>
-          <div class="ctr"><div class="cf" style="width:${a/max*100}%;background:${over ? 'var(--red)' : CLRS[i%6]}"></div></div>
-          ${bgt ? `<div class="cp">예산 ${Math.round(a/bgt*100)}% 사용</div>` : ''}
+          <div class="ctr" style="height:8px;">
+            <div class="cf" style="width:${a/max*100}%;
+              background:${over ? 'var(--red)' : CLRS[i%6]};height:100%;"></div>
+          </div>
+          ${bgt ? `<div class="cp" style="font-size:11px;color:${over?'var(--red)':'var(--muted)'};
+            margin-top:3px;">예산 ${Math.round(a/bgt*100)}% 사용</div>` : ''}
         </div>`;
       }).join('')
     : '<div class="empty"><div class="ei">📊</div>이번 달 지출 없음</div>';
@@ -1532,36 +1563,45 @@ function showCatDrill(cat) {
   const list  = $('cat-drill-list');
   if (!drill) return;
 
-  // 현재 달 ledger에서 해당 카테고리 거래 필터
-  const ym = calYM();
-  const rows = S.ledger.length > 0 ? S.ledger :
-    (MEM_CACHE['getLedger_' + ym]?.data || []);
+  // 데이터 소스: S.ledger → 캐시 → 서버 순
+  const ym   = calYM();
+  const ck   = 'getLedger_' + ym;
+  const rows = S.ledger.length > 0 ? S.ledger : (MEM_CACHE[ck]?.data || []);
 
-  const filtered = rows
-    .filter(t => t.category === cat && t.type !== '수입')
-    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
-
-  title.innerHTML = `${ICONS[cat]||'•'} ${cat} <span style="color:var(--muted);font-weight:400;font-size:12px;">— ${filtered.length}건</span>`;
-
-  if (!filtered.length) {
-    // ledger 미로드 시 서버에서 가져오기
-    list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">로딩 중...</div>';
+  const renderDrill = (source) => {
+    const filtered = source
+      .filter(t => t.category === cat && t.type !== '수입')
+      .sort((a,b) => (b.date||'').localeCompare(a.date||'') ||
+                     (b.createdAt||'').localeCompare(a.createdAt||''));
+    title.innerHTML = `${ICONS[cat]||'•'} <strong>${cat}</strong>`
+      + ` <span style="color:var(--muted);font-weight:400;font-size:12px;">— ${filtered.length}건</span>`;
+    list.innerHTML = filtered.length
+      ? filtered.map(t => txnRow(t, false)).join('')
+      : `<div style="color:var(--muted);font-size:13px;padding:10px 0;text-align:center;">
+          이번 달 ${cat} 지출 없음
+        </div>`;
     drill.style.display = 'block';
-    const ym2 = calYM();
-    call({ action:'getLedger', month: ym2 }).then(d => {
-      const rows2 = (Array.isArray(d)?d:[]).filter(t => t.category===cat && t.type!=='수입')
-        .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-      list.innerHTML = rows2.length
-        ? rows2.map(t=>txnRow(t,false)).join('')
-        : `<div style="color:var(--muted);font-size:13px;padding:8px 0;">이번 달 ${cat} 지출 없음</div>`;
-    }).catch(()=>{ list.innerHTML='<div style="color:var(--red);font-size:13px;">로드 실패</div>'; });
-    return;
-  }
+    setTimeout(() => drill.scrollIntoView({ behavior:'smooth', block:'nearest' }), 80);
+  };
 
-  list.innerHTML = filtered.map(t => txnRow(t, false)).join('');
-  drill.style.display = 'block';
-  // 드릴다운으로 스크롤
-  setTimeout(() => drill.scrollIntoView({ behavior:'smooth', block:'nearest' }), 100);
+  if (rows.length > 0) {
+    renderDrill(rows);
+  } else {
+    // 서버에서 로드
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px 0;text-align:center;">로딩 중...</div>';
+    title.innerHTML = `${ICONS[cat]||'•'} <strong>${cat}</strong>`;
+    drill.style.display = 'block';
+    call({ action: 'getLedger', month: ym })
+      .then(d => {
+        const data = Array.isArray(d) ? d : [];
+        S.ledger = data;
+        MEM_CACHE[ck] = { ts: Date.now(), data };
+        renderDrill(data);
+      })
+      .catch(() => {
+        list.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px 0;">데이터 로드 실패 — 가계부 탭을 먼저 열어주세요</div>';
+      });
+  }
 }
 
 function closeCatDrill() {
