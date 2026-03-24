@@ -334,19 +334,27 @@ body{
 /* ══ 모달 ══════════════════════════════════════════════ */
 .mod-bg{
   position:fixed;
-  inset:0;
-  background:rgba(15,23,42,.5);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
-  z-index:9000; /* 탭바/FAB보다 무조건 높게 */
-  display:none; /* opacity 대신 display로 완전 제거 */
+  top:0;left:0;right:0;bottom:0;
+  background:rgba(15,23,42,.55);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+  z-index:9000;
+  display:flex;
   align-items:center;
   justify-content:center;
   padding:20px;
   box-sizing:border-box;
+  /* 닫힘 상태 — 완전히 비활성화 */
+  visibility:hidden;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .15s, visibility 0s linear .15s;
 }
 .mod-bg.on{
-  display:flex; /* 열릴 때만 표시 */
+  visibility:visible;
+  pointer-events:auto;
+  opacity:1;
+  transition:opacity .15s, visibility 0s linear 0s;
 }
 .mod{
   background:var(--bg2);
@@ -359,18 +367,13 @@ body{
   display:flex;
   flex-direction:column;
   overflow:hidden;
-  box-shadow:var(--sh-lg);
-  transform:scale(.95);
-  opacity:0;
-  transition:transform .2s cubic-bezier(.34,1.56,.64,1), opacity .15s ease;
+  box-shadow:0 8px 40px rgba(0,0,0,.25);
+  transform:scale(.94) translateY(8px);
+  transition:transform .18s cubic-bezier(.34,1.56,.64,1);
 }
 .mod-bg.on .mod{
-  transform:scale(1);
-  opacity:1;
+  transform:scale(1) translateY(0);
 }
-/* 모달 애니메이션 — display:flex 전환 후 keyframe으로 */
-@keyframes modIn{from{transform:scale(.93);opacity:0}to{transform:scale(1);opacity:1}}
-.mod-bg.on .mod{animation:modIn .18s ease forwards;}
 .mod-handle{display:none;}
 .mot{
   font-size:18px;font-weight:800;
@@ -548,26 +551,19 @@ body{
     justify-content:center !important;
     padding:16px !important;
   }
-  .mod-bg.on{
-    display:flex !important;
-  }
+  /* 모바일: visibility 상속, display는 항상 flex */
   .mod{
-    width:100% !important;
-    max-width:calc(100vw - 40px) !important;
-    max-height:calc(100dvh - 120px) !important;
+    width:calc(100vw - 32px) !important;
+    max-width:calc(100vw - 32px) !important;
+    max-height:calc(100dvh - 100px) !important;
     height:auto !important;
     border-radius:20px !important;
     margin:0 auto !important;
-    transform:scale(.9) !important;
-    opacity:0 !important;
-    transition:transform .2s cubic-bezier(.34,1.56,.64,1), opacity .15s ease !important;
-    display:flex !important;
-    flex-direction:column !important;
-    overflow:hidden !important;
+    transform:scale(.94) translateY(8px) !important;
+    transition:transform .18s cubic-bezier(.34,1.56,.64,1) !important;
   }
   .mod-bg.on .mod{
-    transform:scale(1) !important;
-    opacity:1 !important;
+    transform:scale(1) translateY(0) !important;
   }
   /* 핸들바 숨김 (중앙 팝업이라 불필요) */
   .mod-handle{ display:none !important; }
@@ -2871,7 +2867,7 @@ function txnRow(t, showDel) {
 }
 
 function openM(id) {
-  closeAllModals(); // 기존 모달 먼저 닫기
+  closeAllModals();
   $(id).classList.add('on');
 }
 function closeM(id) {
@@ -2880,13 +2876,12 @@ function closeM(id) {
 function closeAllModals() {
   document.querySelectorAll('.mod-bg.on').forEach(m => m.classList.remove('on'));
 }
-// 백드롭 클릭/터치로 닫기
+// 백드롭 클릭으로 닫기 (visibility:hidden이라 이미 클릭 안 됨)
 document.querySelectorAll('.mod-bg').forEach(el => {
   el.addEventListener('click', e => {
     if (e.target === el) closeAllModals();
   });
 });
-// 안드로이드 뒤로가기
 window.addEventListener('popstate', closeAllModals);
 
 let toastT;
