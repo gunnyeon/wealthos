@@ -1224,14 +1224,15 @@ function getApiUrl() {
 // ── 클라이언트 메모리 캐시 ────────────────────────────────────
 const MEM_CACHE = {};
 const CACHE_MS = {
-  getDashboard: 30000,   // 30초
-  getMembers:   300000,  // 5분
-  getGoals:     60000,   // 60초
-  getAssets:    60000,   // 60초
-  getBudgets:   300000,  // 5분
-  getCategories:600000,  // 10분
-  getPayMethods:600000,  // 10분
-  getActivity:  15000,   // 15초
+  getDashboard: 60000,    // 1분
+  getAll:       60000,    // 1분
+  getMembers:   600000,   // 10분
+  getGoals:     120000,   // 2분
+  getAssets:    120000,   // 2분
+  getBudgets:   600000,   // 10분
+  getCategories:3600000,  // 1시간
+  getPayMethods:3600000,  // 1시간
+  getActivity:  30000,    // 30초
 };
 // 데이터 변경 시 관련 캐시 무효화
 const INVALIDATE_ON = {
@@ -1343,7 +1344,7 @@ async function call(params) {
 function startPoll() {
   if (S.timer) clearInterval(S.timer);
   doPoll();
-  const interval = document.hidden ? 60000 : 15000;
+  const interval = document.hidden ? 120000 : 45000;
   S.timer = setInterval(doPoll, interval);
 }
 
@@ -1394,10 +1395,13 @@ function go(pg) {
   document.querySelectorAll('.ni').forEach(e => {
     if (e.getAttribute('onclick')?.includes("'" + pg + "'")) e.classList.add('on');
   });
-  // 캐시 즉시 렌더 후 백그라운드 갱신
   const fns = { dash: loadDash, ledger: loadLedger, assets: loadAssets,
      goals: loadGoals, analysis: loadAnalysis, activity: loadActivity, settings: loadSettings };
   fns[pg]?.();
+}
+// 탭 전환 시 즉시 캐시 렌더 (서버 대기 없음)
+function goFast(pg) {
+  go(pg);
 }
 const isActive = pg => !!$('pg-' + pg)?.classList.contains('on');
 
@@ -1460,8 +1464,8 @@ async function loadDash() {
     S.budgets = cached.data.budgets || {};
     renderDash(cached.data);
     $('warn-area').innerHTML = '';
-    // 캐시가 20초 이내면 서버 재요청 안 함
-    if (Date.now() - cached.ts < 20000) return;
+    // 캐시가 60초 이내면 서버 재요청 안 함
+    if (Date.now() - cached.ts < 60000) return;
   } else {
     $('dash-time').textContent = '로딩 중...';
     $('warn-area').innerHTML = '';
@@ -1923,8 +1927,12 @@ function refreshCalDay(dateStr) {
 // 자산
 // ══════════════════════════════════════════════════════
 async function loadAssets() {
+  // 캐시된 데이터 즉시 표시
+  const assetCached = MEM_CACHE['getAssets'];
+  if (assetCached && Date.now() - assetCached.ts < CACHE_MS.getAssets) {
+    S.assets = assetCached.data;
+  }
   if (S.assets.length > 0) {
-    // 기존 자산 데이터 즉시 표시
     const tot=S.assets.reduce((s,a)=>s+a.currentValue,0);
     const cost=S.assets.reduce((s,a)=>s+(a.purchaseValue||a.currentValue),0);
     const prf=tot-cost;
@@ -1932,6 +1940,9 @@ async function loadAssets() {
     $('a-prf').textContent=(prf>=0?'+':'')+fmt(prf);
     $('a-prf').className='mv '+(prf>=0?'g':'r');
     $('a-rt').textContent=cost>0?((prf/cost)*100).toFixed(1)+'%':'—';
+    renderAssetList(); // 즉시 렌더
+    // 캐시 유효하면 서버 재요청 안 함
+    if (assetCached && Date.now() - assetCached.ts < CACHE_MS.getAssets) return;
   } else if (!$('asset-list').children.length) {
     $('asset-list').innerHTML = '<div class="empty">로딩 중...</div>';
   }
@@ -1947,6 +1958,14 @@ async function loadAssets() {
     $('a-prf').className   = 'mv ' + (prf >= 0 ? 'g' : 'r');
     $('a-rt').textContent  = cost > 0 ? ((prf / cost) * 100).toFixed(1) + '%' : '—';
 
+    renderAssetList();
+  } catch(e) {
+    $('asset-list').innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
+  }
+}
+
+function renderAssetList() {
+  if (!S.assets.length) return;
     const byType = {};
     S.assets.forEach(a => (byType[a.type] = byType[a.type] || []).push(a));
     // 유형별 고유 색상
@@ -3404,42 +3423,64 @@ function pickMeMob(name) {
   initMems(null);
   setupMobileUI();
 
-  // ── 앱 시작 시 모든 데이터 즉시 병렬 프리로드 ──────────────────
+  // ── 앱 시작: getAll 1회 요청으로 모든 데이터 로드 ──────────────
   async function preloadAll() {
-    const now = new Date();
-    const thisYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const now   = new Date();
+    const thisYM = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
     const prevM  = new Date(now.getFullYear(), now.getMonth()-1, 1);
-    const prevYM = `${prevM.getFullYear()}-${String(prevM.getMonth()+1).padStart(2,'0')}`;
+    const prevYM = prevM.getFullYear() + '-' + String(prevM.getMonth()+1).padStart(2,'0');
 
-    // 모든 API 동시 호출
-    const [dash, ledger, prevLedger, assets, goals, cats, pays, budgets] = await Promise.allSettled([
-      call({ action: 'getDashboard' }),
-      call({ action: 'getLedger', month: thisYM }),
-      call({ action: 'getLedger', month: prevYM }),
-      call({ action: 'getAssets' }),
-      call({ action: 'getGoals' }),
-      call({ action: 'getCategories' }),
-      call({ action: 'getPayMethods' }),
-      call({ action: 'getBudgets' }),
-    ]);
+    try {
+      // ★ 단 1번 요청으로 모든 초기 데이터 수신
+      const all = await call({ action: 'getAll', month: thisYM });
+      if (!all) return;
 
-    // 결과 캐싱
-    if (dash.status==='fulfilled')      { /* getDashboard 캐시는 call() 내부에서 처리됨 */ }
-    if (ledger.status==='fulfilled')    { MEM_CACHE['getLedger_'+thisYM] = { ts:Date.now(), data:ledger.value||[] }; S.ledger = ledger.value||[]; }
-    if (prevLedger.status==='fulfilled'){ MEM_CACHE['getLedger_'+prevYM] = { ts:Date.now(), data:prevLedger.value||[] }; }
-    if (assets.status==='fulfilled')    { S.assets = assets.value||[]; }
-    if (goals.status==='fulfilled')     { S.goals  = goals.value||[]; }
-    if (cats.status==='fulfilled' && cats.value) {
-      if (cats.value.expense) ECATS = cats.value.expense.map(c=>c.name);
-      if (cats.value.income)  ICATS = cats.value.income.map(c=>c.name);
+      // 대시보드
+      if (all.dash) {
+        MEM_CACHE['getDashboard'] = { ts: Date.now(), data: all.dash };
+        initMems(all.dash.members || null);
+        S.budgets = all.dash.budgets || {};
+        renderDash(all.dash);
+      }
+      // 가계부
+      if (all.ledger) {
+        S.ledger = all.ledger;
+        MEM_CACHE['getLedger_' + thisYM] = { ts: Date.now(), data: all.ledger };
+      }
+      // 자산
+      if (all.assets) {
+        S.assets = all.assets;
+        MEM_CACHE['getAssets'] = { ts: Date.now(), data: all.assets };
+      }
+      // 목표
+      if (all.goals) {
+        S.goals = all.goals;
+        MEM_CACHE['getGoals'] = { ts: Date.now(), data: all.goals };
+      }
+      // 카테고리/결제수단
+      if (all.cats) {
+        if (all.cats.expense) { ECATS = all.cats.expense.map(c=>c.name); ICATS = all.cats.income.map(c=>c.name); }
+        if (all.cats.expense) all.cats.expense.forEach(c => { if(c.icon) ICONS[c.name]=c.icon; });
+        MEM_CACHE['getCategories'] = { ts: Date.now(), data: all.cats };
+      }
+      if (all.pays && all.pays.length) {
+        PAYS = all.pays;
+        MEM_CACHE['getPayMethods'] = { ts: Date.now(), data: all.pays };
+      }
+
+      // 이전 달 가계부는 백그라운드로 별도 로드
+      call({ action: 'getLedger', month: prevYM })
+        .then(d => { if(d) MEM_CACHE['getLedger_'+prevYM] = { ts:Date.now(), data:d }; })
+        .catch(()=>{});
+
+    } catch(e) {
+      // getAll 실패 시 개별 요청으로 폴백
+      loadDash();
     }
-    if (pays.status==='fulfilled' && Array.isArray(pays.value) && pays.value.length) PAYS = pays.value;
-    if (budgets.status==='fulfilled' && budgets.value) S.budgets = budgets.value;
   }
 
-  // 대시보드 로딩과 프리로드 동시 실행
-  loadDash();
-  preloadAll().catch(()=>{});
+  // preloadAll 먼저, 대시보드는 preloadAll 안에서 렌더
+  preloadAll().catch(()=>{ loadDash(); });
   startPoll();
 
   window.addEventListener('resize', () => {
