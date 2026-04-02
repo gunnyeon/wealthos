@@ -1965,86 +1965,96 @@ async function loadAssets() {
 }
 
 function renderAssetList() {
-  if (!S.assets.length) return;
-    const byType = {};
-    S.assets.forEach(a => (byType[a.type] = byType[a.type] || []).push(a));
-    // 유형별 고유 색상
-    const TYPE_COLORS = {
-      '예금/현금':  { bg:'rgba(52,211,153,.12)',  border:'rgba(52,211,153,.35)',  text:'#34d399' },
-      '주식/ETF':   { bg:'rgba(79,142,247,.12)',  border:'rgba(79,142,247,.35)',  text:'#4f8ef7' },
-      '부동산':     { bg:'rgba(251,191,36,.12)',   border:'rgba(251,191,36,.35)',  text:'#fbbf24' },
-      '자동차':     { bg:'rgba(167,139,250,.12)',  border:'rgba(167,139,250,.35)', text:'#a78bfa' },
-      '적금/보험':  { bg:'rgba(251,146,60,.12)',   border:'rgba(251,146,60,.35)',  text:'#fb923c' },
-      '기타':       { bg:'rgba(148,163,184,.12)',  border:'rgba(148,163,184,.35)', text:'#94a3b8' },
-    };
-    // 열림/닫힘 상태 유지
-    if (!S._assetOpen) S._assetOpen = {};
-    // 처음엔 첫 번째 유형만 열기
-    if (Object.keys(S._assetOpen).length === 0) {
-      const firstType = Object.keys(byType)[0];
-      if (firstType) S._assetOpen[firstType] = true;
-    }
-
-    $('asset-list').innerHTML = S.assets.length
-      ? Object.entries(byType).map(([type, items]) => {
-          const subtotal = items.reduce((s, a) => s + a.currentValue, 0);
-          const subCost  = items.reduce((s, a) => s + (a.purchaseValue || a.currentValue), 0);
-          const subPrf   = subtotal - subCost;
-          const clr  = TYPE_COLORS[type] || TYPE_COLORS['기타'];
-          const open = S._assetOpen[type] !== false; // 기본 열림
-          const safeType = esc(type);
-          return `<div style="margin-bottom:10px;border-radius:var(--r);overflow:hidden;border:1.5px solid ${clr.border};">
-            <!-- 헤더 — 클릭으로 토글 -->
-            <div onclick="toggleAssetType('${safeType}')"
-              style="display:flex;justify-content:space-between;align-items:center;
-                padding:12px 16px;background:${clr.bg};cursor:pointer;
-                -webkit-tap-highlight-color:rgba(0,0,0,.05);">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <span style="font-size:20px">${aIcon(type)}</span>
-                <div>
-                  <div style="font-size:14px;font-weight:700;color:${clr.text}">${type}</div>
-                  <div style="font-size:11px;color:var(--muted)">${items.length}개 항목</div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:10px;">
-                <div style="text-align:right">
-                  <div style="font-size:15px;font-weight:800;color:${clr.text}">${fmt(subtotal)}원</div>
-                  ${subPrf !== 0 ? `<div style="font-size:11px;font-weight:600;
-                    color:${subPrf>=0?'var(--green)':'var(--red)'}">
-                    ${subPrf>=0?'▲ +':'▼ '}${fmt(Math.abs(subPrf))}원</div>` : ''}
-                </div>
-                <span style="font-size:18px;color:${clr.text};transition:transform .2s;
-                  transform:rotate(${open?'180':'0'}deg);display:inline-block;">
-                  ▾
-                </span>
-              </div>
-            </div>
-            <!-- 항목 목록 — 아코디언 -->
-            <div id="asset-type-${safeType}"
-              style="display:${open?'block':'none'};background:var(--bg2);">
-              ${items.map(a => {
-                const r = a.purchaseValue > 0
-                  ? ((a.currentValue - a.purchaseValue) / a.purchaseValue * 100).toFixed(1) : null;
-                return `<div class="ti" style="border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0;"
-                  onclick="openEditAsset('${esc(a.id)}','${esc(a.name)}','${esc(a.type)}','${esc(a.institution||'')}',${a.currentValue},${a.purchaseValue},'${esc(a.memo||'')}')">
-                  <div class="tif">
-                    <div class="tin">${a.name}</div>
-                    <div class="tic2">${a.institution||'-'}${a.memo?' · '+a.memo:''}</div>
-                  </div>
-                  <div style="text-align:right;flex-shrink:0;">
-                    <div style="font-weight:700;font-size:14px">${fmt(a.currentValue)}원</div>
-                    ${r!==null?`<div style="font-size:11px;color:${Number(r)>=0?'var(--green)':'var(--red)'}">
-                      ${Number(r)>=0?'+':''}${r}%</div>`:''}
-                  </div>
-                </div>`;
-              }).join('')}
-            </div>
-          </div>`;
-        }).join('')
-      : '<div class="empty"><div class="ei">🏦</div>자산을 추가해보세요</div>';
-  } catch(e) {
-    $('asset-list').innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
+  const el = $('asset-list');
+  if (!el) return;
+  if (!S.assets.length) {
+    el.innerHTML = '<div class="empty"><div class="ei">🏦</div>자산을 추가해보세요</div>';
+    return;
   }
+  const TYPE_COLORS = {
+    '예금/현금': {bg:'rgba(52,211,153,.12)', border:'rgba(52,211,153,.35)', text:'#34d399'},
+    '주식/ETF':  {bg:'rgba(79,142,247,.12)', border:'rgba(79,142,247,.35)', text:'#4f8ef7'},
+    '부동산':    {bg:'rgba(251,191,36,.12)',  border:'rgba(251,191,36,.35)', text:'#fbbf24'},
+    '자동차':    {bg:'rgba(167,139,250,.12)', border:'rgba(167,139,250,.35)',text:'#a78bfa'},
+    '적금/보험': {bg:'rgba(251,146,60,.12)',  border:'rgba(251,146,60,.35)', text:'#fb923c'},
+    '기타':      {bg:'rgba(148,163,184,.12)', border:'rgba(148,163,184,.35)',text:'#94a3b8'},
+  };
+  const byType = {};
+  S.assets.forEach(a => { (byType[a.type] = byType[a.type] || []).push(a); });
+
+  if (!S._assetOpen) S._assetOpen = {};
+  if (Object.keys(S._assetOpen).length === 0) {
+    const first = Object.keys(byType)[0];
+    if (first) S._assetOpen[first] = true;
+  }
+
+  el.innerHTML = '';
+  Object.entries(byType).forEach(function([type, items]) {
+    const subtotal = items.reduce((s,a) => s + a.currentValue, 0);
+    const subCost  = items.reduce((s,a) => s + (a.purchaseValue || a.currentValue), 0);
+    const subPrf   = subtotal - subCost;
+    const clr      = TYPE_COLORS[type] || TYPE_COLORS['기타'];
+    const open     = S._assetOpen[type] !== false;
+    const safeType = esc(type);
+
+    // ── 그룹 래퍼 ──────────────────────────────────────────────
+    const group = document.createElement('div');
+    group.style.cssText = 'margin-bottom:10px;border-radius:var(--r);overflow:hidden;border:1.5px solid ' + clr.border + ';';
+
+    // ── 헤더 ──────────────────────────────────────────────────
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:' + clr.bg + ';cursor:pointer;';
+    hdr.addEventListener('click', function() { toggleAssetType(safeType); });
+
+    const hLeft = document.createElement('div');
+    hLeft.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    hLeft.innerHTML = '<span style="font-size:20px">' + aIcon(type) + '</span>'
+      + '<div><div style="font-size:14px;font-weight:700;color:' + clr.text + '">' + type + '</div>'
+      + '<div style="font-size:11px;color:var(--muted)">' + items.length + '개 항목</div></div>';
+
+    const hRight = document.createElement('div');
+    hRight.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    const prfColor = subPrf >= 0 ? 'var(--green)' : 'var(--red)';
+    const prfSign  = subPrf >= 0 ? '▲ +' : '▼ ';
+    hRight.innerHTML = '<div style="text-align:right">'
+      + '<div style="font-size:15px;font-weight:800;color:' + clr.text + '">' + fmt(subtotal) + '원</div>'
+      + (subPrf !== 0 ? '<div style="font-size:11px;font-weight:600;color:' + prfColor + '">' + prfSign + fmt(Math.abs(subPrf)) + '원</div>' : '')
+      + '</div>'
+      + '<span id="arr-' + safeType + '" style="font-size:18px;color:' + clr.text + ';display:inline-block;transition:transform .2s;transform:rotate(' + (open ? 180 : 0) + 'deg)">▾</span>';
+
+    hdr.appendChild(hLeft);
+    hdr.appendChild(hRight);
+    group.appendChild(hdr);
+
+    // ── 아코디언 바디 ─────────────────────────────────────────
+    const body = document.createElement('div');
+    body.id = 'asset-type-' + safeType;
+    body.style.cssText = 'display:' + (open ? 'block' : 'none') + ';background:var(--bg2);';
+
+    items.forEach(function(a) {
+      const pct = a.purchaseValue > 0
+        ? ((a.currentValue - a.purchaseValue) / a.purchaseValue * 100).toFixed(1) : null;
+      const row = document.createElement('div');
+      row.className = 'ti';
+      row.style.cssText = 'border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0;cursor:pointer;';
+      row.addEventListener('click', function() {
+        openEditAsset(a.id, a.name, a.type, a.institution||'', a.currentValue, a.purchaseValue, a.memo||'');
+      });
+      const pctColor = pct !== null ? (Number(pct) >= 0 ? 'var(--green)' : 'var(--red)') : '';
+      row.innerHTML = '<div class="tif">'
+        + '<div class="tin">' + a.name + '</div>'
+        + '<div class="tic2">' + (a.institution||'-') + (a.memo ? ' · ' + a.memo : '') + '</div>'
+        + '</div>'
+        + '<div style="text-align:right;flex-shrink:0;">'
+        + '<div style="font-weight:700;font-size:14px">' + fmt(a.currentValue) + '원</div>'
+        + (pct !== null ? '<div style="font-size:11px;color:' + pctColor + '">' + (Number(pct) >= 0 ? '+' : '') + pct + '%</div>' : '')
+        + '</div>';
+      body.appendChild(row);
+    });
+
+    group.appendChild(body);
+    el.appendChild(group);
+  });
 }
 
 function toggleAssetType(type) {
