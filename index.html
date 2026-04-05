@@ -1217,8 +1217,88 @@ const S = {
 // ── API URL 설정 ──────────────────────────────────────────────
 // Apps Script 배포 URL을 여기에 입력하거나 설정 화면에서 입력
 const API_URL_KEY = 'wo_api_url';
+
+// ── URL 영구 저장: localStorage + sessionStorage + IndexedDB 3중 보존 ──
+const _DB = { db: null };
+
+function _openDB() {
+  if (_DB.promise) return _DB.promise;
+  _DB.promise = new Promise((resolve) => {
+    try {
+      const req = indexedDB.open('wealthos', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('kv');
+      req.onsuccess = e => { _DB.db = e.target.result; resolve(_DB.db); };
+      req.onerror   = () => resolve(null);
+    } catch(e) { resolve(null); }
+  });
+  return _DB.promise;
+}
+
+async function _dbSet(key, val) {
+  const db = await _openDB();
+  if (!db) return;
+  try {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(val, key);
+  } catch(e) {}
+}
+
+async function _dbGet(key) {
+  const db = await _openDB();
+  if (!db) return null;
+  return new Promise(resolve => {
+    try {
+      const tx  = db.transaction('kv', 'readonly');
+      const req = tx.objectStore('kv').get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror   = () => resolve(null);
+    } catch(e) { resolve(null); }
+  });
+}
+
+function setApiUrl(url) {
+  // 1) localStorage (가장 빠름)
+  try { localStorage.setItem(API_URL_KEY, url); } catch(e) {}
+  // 2) sessionStorage (탭 세션)
+  try { sessionStorage.setItem(API_URL_KEY, url); } catch(e) {}
+  // 3) IndexedDB (PWA 영구 저장)
+  _dbSet(API_URL_KEY, url);
+  // 4) 쿠키 (1년 만료)
+  try {
+    const exp = new Date(Date.now() + 365*24*60*60*1000).toUTCString();
+    document.cookie = API_URL_KEY + '=' + encodeURIComponent(url) + ';expires=' + exp + ';path=/;SameSite=Lax';
+  } catch(e) {}
+}
+
+function _getCookie(key) {
+  try {
+    const m = document.cookie.match('(?:^|; )' + key + '=([^;]*)');
+    return m ? decodeURIComponent(m[1]) : null;
+  } catch(e) { return null; }
+}
+
 function getApiUrl() {
-  return localStorage.getItem(API_URL_KEY) || '';
+  // 1) localStorage 우선
+  try {
+    const v = localStorage.getItem(API_URL_KEY);
+    if (v) return v;
+  } catch(e) {}
+  // 2) sessionStorage
+  try {
+    const v = sessionStorage.getItem(API_URL_KEY);
+    if (v) { setApiUrl(v); return v; } // 복원 후 반환
+  } catch(e) {}
+  // 3) 쿠키
+  const cv = _getCookie(API_URL_KEY);
+  if (cv) { setApiUrl(cv); return cv; }
+  return '';
+}
+
+// 앱 시작 시 IndexedDB → localStorage 복원
+async function restoreApiUrl() {
+  if (getApiUrl()) return; // 이미 있으면 스킵
+  const v = await _dbGet(API_URL_KEY);
+  if (v) { setApiUrl(v); }
 }
 
 // ── 클라이언트 메모리 캐시 ────────────────────────────────────
@@ -1981,13 +2061,11 @@ function renderAssetList() {
   };
   const byType = {};
   S.assets.forEach(a => { (byType[a.type] = byType[a.type] || []).push(a); });
-
   if (!S._assetOpen) S._assetOpen = {};
   if (Object.keys(S._assetOpen).length === 0) {
     const first = Object.keys(byType)[0];
     if (first) S._assetOpen[first] = true;
   }
-
   el.innerHTML = '';
   Object.entries(byType).forEach(function([type, items]) {
     const subtotal = items.reduce((s,a) => s + a.currentValue, 0);
@@ -1996,62 +2074,50 @@ function renderAssetList() {
     const clr      = TYPE_COLORS[type] || TYPE_COLORS['기타'];
     const open     = S._assetOpen[type] !== false;
     const safeType = esc(type);
-
-    // ── 그룹 래퍼 ──────────────────────────────────────────────
+    // 그룹
     const group = document.createElement('div');
     group.style.cssText = 'margin-bottom:10px;border-radius:var(--r);overflow:hidden;border:1.5px solid ' + clr.border + ';';
-
-    // ── 헤더 ──────────────────────────────────────────────────
+    // 헤더
     const hdr = document.createElement('div');
     hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:' + clr.bg + ';cursor:pointer;';
-    hdr.addEventListener('click', function() { toggleAssetType(safeType); });
-
-    const hLeft = document.createElement('div');
-    hLeft.style.cssText = 'display:flex;align-items:center;gap:10px;';
-    hLeft.innerHTML = '<span style="font-size:20px">' + aIcon(type) + '</span>'
-      + '<div><div style="font-size:14px;font-weight:700;color:' + clr.text + '">' + type + '</div>'
-      + '<div style="font-size:11px;color:var(--muted)">' + items.length + '개 항목</div></div>';
-
-    const hRight = document.createElement('div');
-    hRight.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    hdr.addEventListener('click', function(){ toggleAssetType(safeType); });
     const prfColor = subPrf >= 0 ? 'var(--green)' : 'var(--red)';
-    const prfSign  = subPrf >= 0 ? '▲ +' : '▼ ';
-    hRight.innerHTML = '<div style="text-align:right">'
-      + '<div style="font-size:15px;font-weight:800;color:' + clr.text + '">' + fmt(subtotal) + '원</div>'
-      + (subPrf !== 0 ? '<div style="font-size:11px;font-weight:600;color:' + prfColor + '">' + prfSign + fmt(Math.abs(subPrf)) + '원</div>' : '')
+    const prfText  = (subPrf >= 0 ? '▲ +' : '▼ ') + fmt(Math.abs(subPrf)) + '원';
+    hdr.innerHTML = '<div style="display:flex;align-items:center;gap:10px;">'
+      + '<span style="font-size:20px">' + aIcon(type) + '</span>'
+      + '<div><div style="font-size:14px;font-weight:700;color:' + clr.text + '">' + type + '</div>'
+      + '<div style="font-size:11px;color:var(--muted)">' + items.length + '개 항목</div></div></div>'
+      + '<div style="display:flex;align-items:center;gap:10px;">'
+      + '<div style="text-align:right"><div style="font-size:15px;font-weight:800;color:' + clr.text + '">' + fmt(subtotal) + '원</div>'
+      + (subPrf !== 0 ? '<div style="font-size:11px;font-weight:600;color:' + prfColor + '">' + prfText + '</div>' : '')
       + '</div>'
-      + '<span id="arr-' + safeType + '" style="font-size:18px;color:' + clr.text + ';display:inline-block;transition:transform .2s;transform:rotate(' + (open ? 180 : 0) + 'deg)">▾</span>';
-
-    hdr.appendChild(hLeft);
-    hdr.appendChild(hRight);
+      + '<span id="arr-' + safeType + '" style="font-size:18px;color:' + clr.text + ';display:inline-block;transition:transform .2s;transform:rotate(' + (open?180:0) + 'deg)">▾</span>'
+      + '</div>';
     group.appendChild(hdr);
-
-    // ── 아코디언 바디 ─────────────────────────────────────────
+    // 바디
     const body = document.createElement('div');
     body.id = 'asset-type-' + safeType;
     body.style.cssText = 'display:' + (open ? 'block' : 'none') + ';background:var(--bg2);';
-
     items.forEach(function(a) {
       const pct = a.purchaseValue > 0
         ? ((a.currentValue - a.purchaseValue) / a.purchaseValue * 100).toFixed(1) : null;
       const row = document.createElement('div');
       row.className = 'ti';
       row.style.cssText = 'border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0;cursor:pointer;';
-      row.addEventListener('click', function() {
+      row.addEventListener('click', function(){
         openEditAsset(a.id, a.name, a.type, a.institution||'', a.currentValue, a.purchaseValue, a.memo||'');
       });
       const pctColor = pct !== null ? (Number(pct) >= 0 ? 'var(--green)' : 'var(--red)') : '';
       row.innerHTML = '<div class="tif">'
         + '<div class="tin">' + a.name + '</div>'
-        + '<div class="tic2">' + (a.institution||'-') + (a.memo ? ' · ' + a.memo : '') + '</div>'
+        + '<div class="tic2">' + (a.institution||'-') + (a.memo?' · '+a.memo:'') + '</div>'
         + '</div>'
         + '<div style="text-align:right;flex-shrink:0;">'
         + '<div style="font-weight:700;font-size:14px">' + fmt(a.currentValue) + '원</div>'
-        + (pct !== null ? '<div style="font-size:11px;color:' + pctColor + '">' + (Number(pct) >= 0 ? '+' : '') + pct + '%</div>' : '')
+        + (pct !== null ? '<div style="font-size:11px;color:' + pctColor + '">' + (Number(pct)>=0?'+':'') + pct + '%</div>' : '')
         + '</div>';
       body.appendChild(row);
     });
-
     group.appendChild(body);
     el.appendChild(group);
   });
@@ -2820,7 +2886,7 @@ async function saveApiUrl() {
   if (!v.startsWith('https://script.google.com')) {
     toast('올바른 Apps Script URL을 입력하세요', 'err'); return;
   }
-  localStorage.setItem(API_URL_KEY, v);
+  setApiUrl(v);
   toast('저장 중... 연결 테스트');
   try {
     await call({ action: 'getDashboard' });
@@ -3433,6 +3499,12 @@ function pickMeMob(name) {
   initMems(null);
   setupMobileUI();
 
+  // PWA에서 지워진 URL 복원 후 앱 시작
+  restoreApiUrl().then(() => {
+    preloadAll().catch(() => { loadDash(); });
+    startPoll();
+  });
+
   // ── 앱 시작: getAll 1회 요청으로 모든 데이터 로드 ──────────────
   async function preloadAll() {
     const now   = new Date();
@@ -3489,9 +3561,7 @@ function pickMeMob(name) {
     }
   }
 
-  // preloadAll 먼저, 대시보드는 preloadAll 안에서 렌더
-  preloadAll().catch(()=>{ loadDash(); });
-  startPoll();
+  // ← restoreApiUrl().then() 블록에서 호출됨
 
   window.addEventListener('resize', () => {
     setupMobileUI();
