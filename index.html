@@ -1579,10 +1579,14 @@ function renderDash(d) {
   if (catTotalEl) catTotalEl.textContent = fmt(totalExpAmt) + '원';
   renderCatBars(cats, d.budgets || {});
   // 대시보드 결제수단 분석 렌더 (이번 달 데이터 사용)
-  // 카드 데이터: 캐시 우선
+  // 카드 데이터: 로컬 계산 우선 (즉시), 서버 캐시 보완
   const cardHit = MEM_CACHE['getCardSummary'];
-  const cardData = cardHit ? cardHit.data : null;
-  renderDashPayAnalysis(cardData, d);
+  if (cardHit && cardHit.data) {
+    renderDashPayAnalysis(cardHit.data, d);
+  } else {
+    // 로컬 캐시로 즉시 계산
+    refreshCardSummary();
+  }
 
     const exp = d.memberExpense || {}, total = Object.values(exp).reduce((s,v) => s+v, 0) || 1;
   $('mem-bars').innerHTML = S.members.map(m => {
@@ -1672,6 +1676,46 @@ function showCatDrill(cat) {
         list.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px 0;">데이터 로드 실패 — 가계부 탭을 먼저 열어주세요</div>';
       });
   }
+}
+
+// 로컬 ledger 전체에서 카드별 누계 즉시 재계산 후 렌더
+function refreshCardSummary() {
+  // 1) 모든 월 캐시에서 전체 거래 수집
+  const allRows = [];
+  Object.entries(MEM_CACHE).forEach(([k, v]) => {
+    if (k.startsWith('getLedger_') && Array.isArray(v.data)) {
+      allRows.push(...v.data);
+    }
+  });
+  // 현재 달 S.ledger도 포함 (중복 제거: id 기준)
+  const seen = new Set(allRows.map(t => t.id));
+  S.ledger.forEach(t => { if (!seen.has(t.id)) allRows.push(t); });
+
+  if (!allRows.length) {
+    // 캐시 없으면 서버에서 로드
+    call({ action: 'getCardSummary' })
+      .then(data => {
+        if (data) MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
+        renderDashPayAnalysis(data, null);
+      }).catch(() => {});
+    return;
+  }
+
+  // 2) 카드별 집계
+  const summary = {};
+  allRows.forEach(t => {
+    const pm = t.payMethod || '미지정';
+    if (!summary[pm]) summary[pm] = { inc: 0, exp: 0, bal: 0 };
+    if (t.type === '수입') summary[pm].inc += t.amount;
+    else summary[pm].exp += t.amount;
+  });
+  Object.keys(summary).forEach(pm => {
+    summary[pm].bal = summary[pm].inc - summary[pm].exp;
+  });
+
+  // 3) 캐시 업데이트 + 즉시 렌더
+  MEM_CACHE['getCardSummary'] = { ts: Date.now(), data: summary };
+  renderDashPayAnalysis(summary, null);
 }
 
 function renderDashPayAnalysis(cards, d) {
@@ -3209,6 +3253,7 @@ async function deleteTxnFromModal() {
     S.writeTs = Date.now();
     toast('🗑️ 삭제됐습니다');
     cacheInvalidate('deleteTransaction');
+    refreshCardSummary();
     setTimeout(loadDash, 1000);
   } catch(err) {
     S.ledger = backup;
@@ -3369,6 +3414,7 @@ async function submitTxn() {
     toast('✅ 저장됐습니다!');
     cacheInvalidate(p.action);
     if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
+    refreshCardSummary();
     setTimeout(loadDash, 1000);
     if (isActive('assets')) loadAssets();
   } catch(e) {
