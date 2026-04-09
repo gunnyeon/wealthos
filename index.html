@@ -1303,7 +1303,7 @@ const CACHE_MS = {
   getBudgets:    1800000,   // 30분
   getCategories: 7200000,   // 2시간
   getPayMethods: 7200000,   // 2시간
-  getCardSummary:3600000,   // 1시간 (로컬 갱신으로 충분)
+  getCardSummary:0,         // 캐시 없음 — 항상 서버 최신값
   getActivity:    60000,    // 1분
 };
 // 데이터 변경 시 관련 캐시 무효화
@@ -1333,8 +1333,7 @@ function cacheInvalidate(action) {
       Object.keys(MEM_CACHE)
         .filter(k2 => k2.startsWith('getLedger_') && !k2.startsWith('getLedger_server_'))
         .forEach(k2 => delete MEM_CACHE[k2]);
-    } else if (k !== 'getCardSummary') {
-      // getCardSummary 는 삭제 안 함 — refreshCardSummary가 로컬에서 즉시 갱신
+    } else {
       delete MEM_CACHE[k];
     }
   });
@@ -3289,8 +3288,13 @@ async function deleteTxnFromModal() {
     await call({ action: 'deleteTransaction', id, desc, member: S.me, assetId });
     S.writeTs = Date.now();
     toast('🗑️ 삭제됐습니다');
-    refreshCardSummary(); // 캐시 무효화 전에 먼저
     cacheInvalidate('deleteTransaction');
+    // 클라이언트 카드 캐시 강제 삭제 후 서버 최신값 재조회
+    delete MEM_CACHE['getCardSummary'];
+    call({ action: 'getCardSummary' })
+      .then(data => {
+        if (data) { MEM_CACHE['getCardSummary'] = { ts: Date.now(), data }; renderDashPayAnalysis(data, null); }
+      }).catch(() => {});
     setTimeout(loadDash, 1500);
   } catch(err) {
     S.ledger = backup;
@@ -3453,7 +3457,8 @@ async function submitTxn() {
 
     if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
     cacheInvalidate(p.action);
-    // 서버 응답 후 카드 누계 서버값으로 최종 확정 (백그라운드)
+    // 클라이언트 카드 캐시 강제 삭제 후 서버 최신값 재조회
+    delete MEM_CACHE['getCardSummary'];
     call({ action: 'getCardSummary' })
       .then(data => {
         if (data) { MEM_CACHE['getCardSummary'] = { ts: Date.now(), data }; renderDashPayAnalysis(data, null); }
