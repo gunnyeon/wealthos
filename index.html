@@ -700,7 +700,7 @@ body{
     <button class="ni" onclick="go('assets')"><span class="ic">🏦</span><span>자산</span></button>
     <button class="ni" onclick="go('goals')"><span class="ic">🎯</span><span>목표</span></button>
     <button class="ni" onclick="go('analysis')"><span class="ic">📈</span><span>분석</span></button>
-    <button class="ni" onclick="go('activity')"><span class="ic">🔔</span><span>활동</span></button>
+
     <button class="ni" onclick="go('settings')"><span class="ic">⚙️</span><span>설정</span></button>
   </div>
   <div class="sync-w"><div class="sdot" id="sdot"></div><span id="slbl">로딩중</span></div>
@@ -1679,7 +1679,9 @@ function renderDashPayAnalysis(cards, d) {
   if (!el) return;
 
   // 카드 목록: 김건년 카드, 고희경 카드, 생활비 카드 (카드 포함된 것만)
-  const CARD_TARGETS = PAYS.filter(p => p.includes('카드'));
+  // 체크카드·신용카드 제외, 이름에 '카드' 포함된 개인 카드만
+  const EXCLUDE_CARDS = ['체크카드', '신용카드'];
+  const CARD_TARGETS = PAYS.filter(p => p.includes('카드') && !EXCLUDE_CARDS.includes(p));
 
   // cards 서버 데이터 있으면 사용, 없으면 S.ledger로 직접 집계
   let summary = {};
@@ -1699,7 +1701,7 @@ function renderDashPayAnalysis(cards, d) {
 
   // 표시할 카드 목록 (카드 타겟 + 데이터 있는 것)
   const targets = CARD_TARGETS.length > 0 ? CARD_TARGETS
-    : Object.keys(summary).filter(p=>p.includes('카드'));
+    : Object.keys(summary).filter(p=>p.includes('카드') && !EXCLUDE_CARDS.includes(p));
 
   if (!targets.length && !Object.keys(summary).length) {
     el.innerHTML = '<div class="empty" style="padding:10px 0">카드 데이터 없음</div>';
@@ -1901,11 +1903,12 @@ async function loadLedger() {
     const d = await call({ action: 'getLedger', month: ym });
     const newData = Array.isArray(d) ? d : [];
     MEM_CACHE[cacheKey] = { ts: Date.now(), data: newData };
-    // 쓰기 직후면 서버 데이터로 덮어쓰지 않음
     if (!S.writing && Date.now() - S.writeTs >= 3000) {
       S.ledger = newData;
       renderCal(); updateMonthSum();
       if (S.selDate) renderDayPanel(S.selDate);
+      // 인접 달 프리패치
+      _prefetchAdjacentMonths(ym);
     }
   } catch(e) {
     if (!S.ledger.length) {
@@ -1987,19 +1990,45 @@ function _switchMonth() {
     renderCal(); updateMonthSum();
     $('cal-grid').innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--muted);font-size:14px;">🔄 불러오는 중...</div>';
   }
-  // 2. 서버에서 해당 월 데이터 로드
-  if (!S.writing && !(hit && Date.now() - hit.ts < 30000)) {
+  // 2. 서버 로드 — 캐시 5분 이내면 스킵
+  const CACHE_TTL_LEDGER = 300000; // 5분
+  if (!S.writing && !(hit && Date.now() - hit.ts < CACHE_TTL_LEDGER)) {
     call({ action: 'getLedger', month: ym })
       .then(d => {
         const data = Array.isArray(d) ? d : [];
         MEM_CACHE[ck] = { ts: Date.now(), data };
-        if (calYM() === ym) { // 아직 같은 달이면 렌더
+        if (calYM() === ym) {
           S.ledger = data;
           renderCal(); updateMonthSum();
         }
+        // 이웃 달 백그라운드 프리패치 (다음에 쓸 때 즉시 표시)
+        _prefetchAdjacentMonths(ym);
       })
       .catch(() => {});
   }
+}
+
+// 인접 달 데이터 미리 로드 (백그라운드)
+function _prefetchAdjacentMonths(currentYM) {
+  const [y, m] = currentYM.split('-').map(Number);
+  const months = [];
+  // 이전 2달, 다음 1달
+  for (let delta of [-2, -1, 1]) {
+    const d = new Date(y, m - 1 + delta, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+  }
+  months.forEach(ym2 => {
+    const ck2 = 'getLedger_' + ym2;
+    const hit2 = MEM_CACHE[ck2];
+    if (!hit2 || Date.now() - hit2.ts > 300000) {
+      // 낮은 우선순위로 조용히 로드
+      setTimeout(() => {
+        call({ action: 'getLedger', month: ym2 })
+          .then(d => { MEM_CACHE[ck2] = { ts: Date.now(), data: Array.isArray(d)?d:[] }; })
+          .catch(() => {});
+      }, 1500); // 현재 달 렌더 완료 후 1.5초 뒤
+    }
+  });
 }
 
 function goThisMonth() {
@@ -3727,10 +3756,17 @@ function pickMeMob(name) {
         MEM_CACHE['getPayMethods'] = { ts: Date.now(), data: all.pays };
       }
 
-      // 이전 달 가계부는 백그라운드로 별도 로드
-      call({ action: 'getLedger', month: prevYM })
-        .then(d => { if(d) MEM_CACHE['getLedger_'+prevYM] = { ts:Date.now(), data:d }; })
-        .catch(()=>{});
+      // 이전 2달 백그라운드 로드
+      [prevYM].concat((() => {
+        const pp = new Date(now.getFullYear(), now.getMonth()-2, 1);
+        return [pp.getFullYear()+'-'+String(pp.getMonth()+1).padStart(2,'0')];
+      })()).forEach(ym2 => {
+        setTimeout(() => {
+          call({ action: 'getLedger', month: ym2 })
+            .then(d => { if(d) MEM_CACHE['getLedger_'+ym2] = { ts:Date.now(), data:d }; })
+            .catch(()=>{});
+        }, 2000);
+      });
 
     } catch(e) {
       // getAll 실패 시 개별 요청으로 폴백
