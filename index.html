@@ -1712,12 +1712,30 @@ function showCatDrill(cat) {
 }
 
 // 로컬 ledger 전체에서 카드별 누계 즉시 재계산 후 렌더
-function refreshCardSummary() {
-  // 서버 기준 전체 누계 캐시 (getAll 또는 getCardSummary로 받은 것)
-  const baseHit = MEM_CACHE['getCardSummary'];
+// 카드 누계에 단일 거래 즉시 반영 (덧셈/뺄셈)
+function applyTxnToCardSummary(txn, sign) {
+  // sign: +1 = 추가, -1 = 삭제
+  const base = MEM_CACHE['getCardSummary'];
+  if (!base || !base.data) return; // 누계 없으면 스킵 (로드 후 자동 반영)
+  const pm = txn.payMethod || '미지정';
+  const amt = Number(txn.amount) || 0;
+  const data = base.data;
+  if (!data[pm]) data[pm] = { inc: 0, exp: 0, bal: 0 };
+  if (txn.type === '수입') {
+    data[pm].inc += sign * amt;
+  } else {
+    data[pm].exp += sign * amt;
+  }
+  data[pm].bal = data[pm].inc - data[pm].exp;
+  // 캐시 업데이트 (참조 공유이므로 자동 반영)
+  renderDashPayAnalysis(data, null);
+}
 
-  if (!baseHit || !baseHit.data) {
-    // 캐시 없으면 서버 로드 후 렌더 (앱 첫 실행 시만)
+// 구버전 호환 — 전체 재계산 (서버 응답 후 확정 시 사용)
+function refreshCardSummary() {
+  const base = MEM_CACHE['getCardSummary'];
+  if (!base || !base.data) {
+    // 누계 없으면 서버에서 로드
     call({ action: 'getCardSummary' })
       .then(data => {
         if (data) {
@@ -1727,72 +1745,10 @@ function refreshCardSummary() {
       }).catch(() => {});
     return;
   }
-
-  // 기존 누계를 깊은 복사
-  const summary = {};
-  Object.entries(baseHit.data).forEach(([pm, v]) => {
-    summary[pm] = { inc: v.inc||0, exp: v.exp||0, bal: v.bal||0 };
-  });
-
-  // S.ledger(현재 달)의 변경분을 서버 기준에서 차감하고 현재 값으로 교체
-  // 방법: 현재 달 카드별 집계를 로컬로 계산
-  const nowYM = calYM();
-  const serverLedgerHit = MEM_CACHE['getLedger_server_' + nowYM]; // 서버 원본
-  const curLedger = S.ledger; // 낙관적 반영된 현재 상태
-
-  if (serverLedgerHit && Array.isArray(serverLedgerHit.data)) {
-    // 서버 원본과 현재 S.ledger의 차이만 반영
-    const serverMap = {};
-    serverLedgerHit.data.forEach(t => {
-      const pm = t.payMethod || '미지정';
-      if (!serverMap[pm]) serverMap[pm] = { inc: 0, exp: 0 };
-      if (t.type === '수입') serverMap[pm].inc += t.amount;
-      else serverMap[pm].exp += t.amount;
-    });
-    const curMap = {};
-    curLedger.forEach(t => {
-      const pm = t.payMethod || '미지정';
-      if (!curMap[pm]) curMap[pm] = { inc: 0, exp: 0 };
-      if (t.type === '수입') curMap[pm].inc += t.amount;
-      else curMap[pm].exp += t.amount;
-    });
-    // 델타 반영: summary += (cur - server)
-    const allPMs = new Set([...Object.keys(serverMap), ...Object.keys(curMap)]);
-    allPMs.forEach(pm => {
-      if (!summary[pm]) summary[pm] = { inc: 0, exp: 0, bal: 0 };
-      const delta_inc = (curMap[pm]?.inc || 0) - (serverMap[pm]?.inc || 0);
-      const delta_exp = (curMap[pm]?.exp || 0) - (serverMap[pm]?.exp || 0);
-      summary[pm].inc += delta_inc;
-      summary[pm].exp += delta_exp;
-      summary[pm].bal = summary[pm].inc - summary[pm].exp;
-    });
-  } else {
-    // 서버 원본 없음 → S.ledger 전체로 직접 반영
-    // 단, 이미 summary(getCardSummary)에 이번 달이 포함되어 있을 수 있으므로
-    // 이번 달 기준 재집계 후 반영
-    const curMap2 = {};
-    curLedger.forEach(t => {
-      const pm = t.payMethod || '미지정';
-      if (!curMap2[pm]) curMap2[pm] = { inc: 0, exp: 0 };
-      if (t.type === '수입') curMap2[pm].inc += t.amount;
-      else curMap2[pm].exp += t.amount;
-    });
-    // summary에서 이번 달 기존 값을 빼고 새 값 추가
-    // (getCardSummary가 전체 누계이므로 이번 달만 교체)
-    Object.entries(curMap2).forEach(([pm, v]) => {
-      if (!summary[pm]) summary[pm] = { inc: 0, exp: 0, bal: 0 };
-      // 이번 달 변경분을 그대로 반영 (서버 원본 없으므로 overwrite)
-      summary[pm].inc = Math.max(0, summary[pm].inc + v.inc);
-      summary[pm].exp = Math.max(0, summary[pm].exp + v.exp);
-      summary[pm].bal = summary[pm].inc - summary[pm].exp;
-    });
-  }
-
-  // 즉시 렌더
-  renderDashPayAnalysis(summary, null);
+  // 캐시 있으면 그대로 렌더 (applyTxnToCardSummary로 이미 반영됨)
+  renderDashPayAnalysis(base.data, null);
 }
 
-// 서버에서 ledger를 받을 때 서버 원본도 따로 저장
 function _saveLedgerServerCopy(ym, data) {
   MEM_CACHE['getLedger_server_' + ym] = { ts: Date.now(), data: [...(data||[])] };
 }
@@ -3321,6 +3277,8 @@ async function deleteTxnFromModal() {
   closeM('mod-txn');
   S.writing = true;
   const backup = [...S.ledger];
+  const deletedTxn = S.ledger.find(t => t.id === id);
+  if (deletedTxn) applyTxnToCardSummary(deletedTxn, -1); // 즉시 카드 차감
   S.ledger = S.ledger.filter(t => t.id !== id);
   const ck = 'getLedger_' + calYM();
   if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...S.ledger] };
@@ -3445,21 +3403,24 @@ async function submitTxn() {
 
   S.writing = true;
   closeM('mod-txn');
-  // 즉시 완료 메시지 (낙관적)
   toast('✅ 저장됐습니다!');
 
   if (editId) {
-    // 수정 모드: S.ledger 해당 항목 교체
+    // 수정 모드: 기존 거래 제거 후 새 거래 추가 (카드 델타)
+    const oldTxnData = S.ledger.find(t => t.id === editId);
+    if (oldTxnData) applyTxnToCardSummary(oldTxnData, -1); // 기존 차감
     S.ledger = S.ledger.map(t => t.id === editId
       ? { ...t, date:p.date, type:p.type, category:p.category, desc:p.desc,
           amount:Number(p.amount), payMethod:p.payMethod, memo:p.memo, member:p.member,
           assetId: p.assetId || '' }
       : t
     );
+    applyTxnToCardSummary({ ...p, amount: Number(p.amount) }, +1); // 새 값 추가
   } else {
-    // 신규 모드: S.ledger 맨 앞에 한 번만 추가 + 대시보드에도 표시
+    // 신규 모드
     txn.assetId = p.assetId || '';
     S.ledger.unshift(txn);
+    applyTxnToCardSummary(txn, +1); // 즉시 카드 반영
     prependTxnRow(txn, 'dash-txns');
     prependFeedRow({
       time: new Date().toISOString(), member: p.member,
@@ -3467,7 +3428,7 @@ async function submitTxn() {
     }, 'live-feed');
   }
 
-  // 달력·패널 즉시 갱신 (한 번만)
+  // 달력·패널 즉시 갱신
   if (isActive('ledger')) {
     renderCal();
     updateMonthSum();
@@ -3490,10 +3451,13 @@ async function submitTxn() {
       if (MEM_CACHE[ck4]) MEM_CACHE[ck4] = { ts: Date.now(), data: [...S.ledger] };
     }
 
-    toast('✅ 저장됐습니다!');
     if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
-    refreshCardSummary(); // 캐시 무효화 전에 카드 갱신
-    cacheInvalidate(p.action); // getLedger 캐시 무효화 (getCardSummary는 보호)
+    cacheInvalidate(p.action);
+    // 서버 응답 후 카드 누계 서버값으로 최종 확정 (백그라운드)
+    call({ action: 'getCardSummary' })
+      .then(data => {
+        if (data) { MEM_CACHE['getCardSummary'] = { ts: Date.now(), data }; renderDashPayAnalysis(data, null); }
+      }).catch(() => {});
     setTimeout(loadDash, 1500);
     if (isActive('assets')) loadAssets();
   } catch(e) {
@@ -3527,6 +3491,8 @@ async function delTxn(id, desc, assetId, e) {
 
   S.writing = true;
   const backup = [...S.ledger];
+  const deletedTxn2 = S.ledger.find(t => t.id === id);
+  if (deletedTxn2) applyTxnToCardSummary(deletedTxn2, -1); // 즉시 카드 차감
   S.ledger = S.ledger.filter(t => t.id !== id);
   const ck = 'getLedger_' + calYM();
   if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...S.ledger] };
