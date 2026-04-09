@@ -1295,15 +1295,16 @@ async function restoreApiUrl() {
 // ── 클라이언트 메모리 캐시 ────────────────────────────────────
 const MEM_CACHE = {};
 const CACHE_MS = {
-  getDashboard: 60000,    // 1분
-  getAll:       60000,    // 1분
-  getMembers:   600000,   // 10분
-  getGoals:     120000,   // 2분
-  getAssets:    120000,   // 2분
-  getBudgets:   600000,   // 10분
-  getCategories:3600000,  // 1시간
-  getPayMethods:3600000,  // 1시간
-  getActivity:  30000,    // 30초
+  getDashboard:   120000,   // 2분
+  getAll:         120000,   // 2분
+  getMembers:    1800000,   // 30분
+  getGoals:       300000,   // 5분
+  getAssets:      300000,   // 5분
+  getBudgets:    1800000,   // 30분
+  getCategories: 7200000,   // 2시간
+  getPayMethods: 7200000,   // 2시간
+  getCardSummary:3600000,   // 1시간 (로컬 갱신으로 충분)
+  getActivity:    60000,    // 1분
 };
 // 데이터 변경 시 관련 캐시 무효화
 const INVALIDATE_ON = {
@@ -1680,42 +1681,77 @@ function showCatDrill(cat) {
 
 // 로컬 ledger 전체에서 카드별 누계 즉시 재계산 후 렌더
 function refreshCardSummary() {
-  // 1) 모든 월 캐시에서 전체 거래 수집
-  const allRows = [];
-  Object.entries(MEM_CACHE).forEach(([k, v]) => {
-    if (k.startsWith('getLedger_') && Array.isArray(v.data)) {
-      allRows.push(...v.data);
-    }
-  });
-  // 현재 달 S.ledger도 포함 (중복 제거: id 기준)
-  const seen = new Set(allRows.map(t => t.id));
-  S.ledger.forEach(t => { if (!seen.has(t.id)) allRows.push(t); });
+  // 서버 기준 전체 누계 캐시 (getAll 또는 getCardSummary로 받은 것)
+  const baseHit = MEM_CACHE['getCardSummary'];
 
-  if (!allRows.length) {
-    // 캐시 없으면 서버에서 로드
+  if (!baseHit || !baseHit.data) {
+    // 캐시 없으면 서버 로드 후 렌더 (앱 첫 실행 시만)
     call({ action: 'getCardSummary' })
       .then(data => {
-        if (data) MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
-        renderDashPayAnalysis(data, null);
+        if (data) {
+          MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
+          renderDashPayAnalysis(data, null);
+        }
       }).catch(() => {});
     return;
   }
 
-  // 2) 카드별 집계
+  // 기존 누계를 깊은 복사
   const summary = {};
-  allRows.forEach(t => {
-    const pm = t.payMethod || '미지정';
-    if (!summary[pm]) summary[pm] = { inc: 0, exp: 0, bal: 0 };
-    if (t.type === '수입') summary[pm].inc += t.amount;
-    else summary[pm].exp += t.amount;
-  });
-  Object.keys(summary).forEach(pm => {
-    summary[pm].bal = summary[pm].inc - summary[pm].exp;
+  Object.entries(baseHit.data).forEach(([pm, v]) => {
+    summary[pm] = { inc: v.inc||0, exp: v.exp||0, bal: v.bal||0 };
   });
 
-  // 3) 캐시 업데이트 + 즉시 렌더
-  MEM_CACHE['getCardSummary'] = { ts: Date.now(), data: summary };
+  // S.ledger(현재 달)의 변경분을 서버 기준에서 차감하고 현재 값으로 교체
+  // 방법: 현재 달 카드별 집계를 로컬로 계산
+  const nowYM = calYM();
+  const serverLedgerHit = MEM_CACHE['getLedger_server_' + nowYM]; // 서버 원본
+  const curLedger = S.ledger; // 낙관적 반영된 현재 상태
+
+  if (serverLedgerHit && Array.isArray(serverLedgerHit.data)) {
+    // 서버 원본과 현재 S.ledger의 차이만 반영
+    const serverMap = {};
+    serverLedgerHit.data.forEach(t => {
+      const pm = t.payMethod || '미지정';
+      if (!serverMap[pm]) serverMap[pm] = { inc: 0, exp: 0 };
+      if (t.type === '수입') serverMap[pm].inc += t.amount;
+      else serverMap[pm].exp += t.amount;
+    });
+    const curMap = {};
+    curLedger.forEach(t => {
+      const pm = t.payMethod || '미지정';
+      if (!curMap[pm]) curMap[pm] = { inc: 0, exp: 0 };
+      if (t.type === '수입') curMap[pm].inc += t.amount;
+      else curMap[pm].exp += t.amount;
+    });
+    // 델타 반영: summary += (cur - server)
+    const allPMs = new Set([...Object.keys(serverMap), ...Object.keys(curMap)]);
+    allPMs.forEach(pm => {
+      if (!summary[pm]) summary[pm] = { inc: 0, exp: 0, bal: 0 };
+      const delta_inc = (curMap[pm]?.inc || 0) - (serverMap[pm]?.inc || 0);
+      const delta_exp = (curMap[pm]?.exp || 0) - (serverMap[pm]?.exp || 0);
+      summary[pm].inc += delta_inc;
+      summary[pm].exp += delta_exp;
+      summary[pm].bal = summary[pm].inc - summary[pm].exp;
+    });
+  } else {
+    // 서버 원본 없으면 S.ledger 전체를 누계에 단순 반영
+    curLedger.forEach(t => {
+      const pm = t.payMethod || '미지정';
+      if (!summary[pm]) summary[pm] = { inc: 0, exp: 0, bal: 0 };
+      if (t.type === '수입') summary[pm].inc += t.amount;
+      else summary[pm].exp += t.amount;
+      summary[pm].bal = summary[pm].inc - summary[pm].exp;
+    });
+  }
+
+  // 즉시 렌더 (캐시는 업데이트하지 않음 — 서버 원본 유지)
   renderDashPayAnalysis(summary, null);
+}
+
+// 서버에서 ledger를 받을 때 서버 원본도 따로 저장
+function _saveLedgerServerCopy(ym, data) {
+  MEM_CACHE['getLedger_server_' + ym] = { ts: Date.now(), data: [...(data||[])] };
 }
 
 function renderDashPayAnalysis(cards, d) {
@@ -1947,11 +1983,11 @@ async function loadLedger() {
     const d = await call({ action: 'getLedger', month: ym });
     const newData = Array.isArray(d) ? d : [];
     MEM_CACHE[cacheKey] = { ts: Date.now(), data: newData };
+    _saveLedgerServerCopy(ym, newData); // 서버 원본 보존
     if (!S.writing && Date.now() - S.writeTs >= 3000) {
       S.ledger = newData;
       renderCal(); updateMonthSum();
       if (S.selDate) renderDayPanel(S.selDate);
-      // 인접 달 프리패치
       _prefetchAdjacentMonths(ym);
     }
   } catch(e) {
@@ -2041,11 +2077,11 @@ function _switchMonth() {
       .then(d => {
         const data = Array.isArray(d) ? d : [];
         MEM_CACHE[ck] = { ts: Date.now(), data };
+        _saveLedgerServerCopy(ym, data);
         if (calYM() === ym) {
           S.ledger = data;
           renderCal(); updateMonthSum();
         }
-        // 이웃 달 백그라운드 프리패치 (다음에 쓸 때 즉시 표시)
         _prefetchAdjacentMonths(ym);
       })
       .catch(() => {});
@@ -3796,6 +3832,8 @@ function pickMeMob(name) {
       }
       if (all.cards) {
         MEM_CACHE['getCardSummary'] = { ts: Date.now(), data: all.cards };
+        // 카드 누계 즉시 렌더
+        renderDashPayAnalysis(all.cards, null);
       }
       if (all.pays && all.pays.length) {
         PAYS = all.pays;
