@@ -791,9 +791,9 @@ body{
     <div id="live-feed"></div>
   </div>
 
-  <!-- 이번 달 수입 / 지출 / 잔액 누계 -->
+  <!-- 카드별 누계 수입 / 지출 / 잔액 -->
   <div class="card">
-    <div class="ct">이번 달 수입 · 지출 · 잔액</div>
+    <div class="ct">카드별 누계 수입 · 지출 · 잔액</div>
     <div id="dash-pay-analysis"></div>
   </div>
 
@@ -1579,7 +1579,10 @@ function renderDash(d) {
   if (catTotalEl) catTotalEl.textContent = fmt(totalExpAmt) + '원';
   renderCatBars(cats, d.budgets || {});
   // 대시보드 결제수단 분석 렌더 (이번 달 데이터 사용)
-  renderDashPayAnalysis(d);
+  // 카드 데이터: 캐시 우선
+  const cardHit = MEM_CACHE['getCardSummary'];
+  const cardData = cardHit ? cardHit.data : null;
+  renderDashPayAnalysis(cardData, d);
 
     const exp = d.memberExpense || {}, total = Object.values(exp).reduce((s,v) => s+v, 0) || 1;
   $('mem-bars').innerHTML = S.members.map(m => {
@@ -1671,43 +1674,92 @@ function showCatDrill(cat) {
   }
 }
 
-function renderDashPayAnalysis(d) {
+function renderDashPayAnalysis(cards, d) {
   const el = $('dash-pay-analysis');
   if (!el) return;
 
-  // 전체 누계: S.ledger 또는 d.recentTxns
-  const rows = S.ledger.length > 0 ? S.ledger : (d.recentTxns || []);
-  const totalInc = rows.filter(t=>t.type==='수입').reduce((s,t)=>s+t.amount,0);
-  const totalExp = rows.filter(t=>t.type!=='수입').reduce((s,t)=>s+t.amount,0);
-  const totalBal = totalInc - totalExp;
+  // 카드 목록: 김건년 카드, 고희경 카드, 생활비 카드 (카드 포함된 것만)
+  const CARD_TARGETS = PAYS.filter(p => p.includes('카드'));
 
-  // 큰 숫자 3박스 + 막대 시각화
-  const balColor = totalBal >= 0 ? 'var(--green)' : 'var(--red)';
-  const expRatio = totalInc > 0 ? Math.min(Math.round(totalExp/totalInc*100),100) : 0;
+  // cards 서버 데이터 있으면 사용, 없으면 S.ledger로 직접 집계
+  let summary = {};
+  if (cards && Object.keys(cards).length > 0) {
+    summary = cards;
+  } else {
+    // S.ledger 전체(이번 달) 기반 집계 — 서버 응답 전 임시
+    const rows = S.ledger;
+    rows.forEach(t => {
+      const pm = t.payMethod || '미지정';
+      if (!summary[pm]) summary[pm] = { inc:0, exp:0, bal:0 };
+      if (t.type==='수입') summary[pm].inc += t.amount;
+      else summary[pm].exp += t.amount;
+    });
+    Object.keys(summary).forEach(pm => { summary[pm].bal = summary[pm].inc - summary[pm].exp; });
+  }
 
-  el.innerHTML =
-    // 3박스 요약
-    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">'
-    + '<div style="background:var(--grn-lt);border:1.5px solid #6ee7b7;border-radius:12px;padding:12px;text-align:center;">'
-    + '<div style="font-size:11px;color:var(--green);font-weight:700;margin-bottom:4px;">💰 수입</div>'
-    + '<div style="font-size:16px;font-weight:800;color:var(--green);">+'+fmt(totalInc)+'</div>'
-    + '<div style="font-size:10px;color:var(--muted);">원</div></div>'
-    + '<div style="background:var(--red-lt);border:1.5px solid #fca5a5;border-radius:12px;padding:12px;text-align:center;">'
-    + '<div style="font-size:11px;color:var(--red);font-weight:700;margin-bottom:4px;">💸 지출</div>'
-    + '<div style="font-size:16px;font-weight:800;color:var(--red);">-'+fmt(totalExp)+'</div>'
-    + '<div style="font-size:10px;color:var(--muted);">원</div></div>'
-    + '<div style="background:'+(totalBal>=0?'var(--grn-lt)':'var(--red-lt)')+';border:1.5px solid '+(totalBal>=0?'#6ee7b7':'#fca5a5')+';border-radius:12px;padding:12px;text-align:center;">'
-    + '<div style="font-size:11px;color:'+balColor+';font-weight:700;margin-bottom:4px;">🏦 잔액</div>'
-    + '<div style="font-size:16px;font-weight:800;color:'+balColor+';">'+(totalBal>=0?'+':'')+fmt(totalBal)+'</div>'
-    + '<div style="font-size:10px;color:var(--muted);">원</div></div>'
-    + '</div>'
-    // 지출 비율 바
-    + '<div style="margin-bottom:4px;display:flex;justify-content:space-between;font-size:11px;color:var(--muted);">'
-    + '<span>지출 비율</span><span style="font-weight:700;color:'+(expRatio>=90?'var(--red)':expRatio>=70?'var(--amber)':'var(--green)')+'">'+expRatio+'%</span>'
-    + '</div>'
-    + '<div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;">'
-    + '<div style="height:100%;width:'+expRatio+'%;border-radius:4px;background:'+(expRatio>=90?'var(--red)':expRatio>=70?'var(--amber)':'var(--green)')+';transition:width .5s;"></div>'
-    + '</div>';
+  // 표시할 카드 목록 (카드 타겟 + 데이터 있는 것)
+  const targets = CARD_TARGETS.length > 0 ? CARD_TARGETS
+    : Object.keys(summary).filter(p=>p.includes('카드'));
+
+  if (!targets.length && !Object.keys(summary).length) {
+    el.innerHTML = '<div class="empty" style="padding:10px 0">카드 데이터 없음</div>';
+    // 서버에서 카드 데이터 로드
+    call({ action: 'getCardSummary' }).then(data => {
+      if (data) MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
+      renderDashPayAnalysis(data, d);
+    }).catch(()=>{});
+    return;
+  }
+
+  const CARD_CLRS = ['#2563eb','#059669','#d97706','#7c3aed','#dc2626','#0891b2'];
+
+  let html = '';
+  targets.forEach((pm, i) => {
+    const v   = summary[pm] || { inc:0, exp:0, bal:0 };
+    const bal = v.inc - v.exp;
+    const balColor = bal >= 0 ? 'var(--green)' : 'var(--red)';
+    const expRatio = v.inc > 0 ? Math.min(Math.round(v.exp/v.inc*100),100) : (v.exp>0?100:0);
+    const clr = CARD_CLRS[i % CARD_CLRS.length];
+
+    html += '<div style="background:var(--bg);border:1.5px solid var(--border);'
+      + 'border-left:4px solid '+clr+';border-radius:12px;padding:14px;margin-bottom:10px;">'
+      // 카드 이름
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+      + '<span style="font-size:14px;font-weight:800;color:'+clr+';">💳 '+pm+'</span>'
+      + '<span style="font-size:11px;color:var(--muted);">전체 누계</span>'
+      + '</div>'
+      // 수입 / 지출 / 잔액 3열
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:10px;">'
+      + '<div><div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:3px;">수입</div>'
+      + '<div style="font-size:13px;font-weight:800;color:var(--green);">'+(v.inc>0?'+'+fmt(v.inc):v.inc===0?'0':'—')+'원</div></div>'
+      + '<div style="border-left:1px solid var(--border);border-right:1px solid var(--border);">'
+      + '<div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:3px;">지출</div>'
+      + '<div style="font-size:13px;font-weight:800;color:var(--red);">'+(v.exp>0?'-'+fmt(v.exp):v.exp===0?'0':'—')+'원</div></div>'
+      + '<div><div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:3px;">잔액</div>'
+      + '<div style="font-size:13px;font-weight:800;color:'+balColor+';">'+(bal>=0?'+':'')+fmt(bal)+'원</div></div>'
+      + '</div>'
+      // 지출 비율 바
+      + '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px;">'
+      + '<span>지출 비율</span>'
+      + '<span style="font-weight:700;color:'+(expRatio>=90?'var(--red)':expRatio>=70?'var(--amber)':'var(--green)')+'">'+expRatio+'%</span>'
+      + '</div>'
+      + '<div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;">'
+      + '<div style="height:100%;width:'+expRatio+'%;background:'+(expRatio>=90?'var(--red)':expRatio>=70?'var(--amber)':clr)+';border-radius:3px;transition:width .5s;"></div>'
+      + '</div>'
+      + '</div>';
+  });
+
+  el.innerHTML = html || '<div class="empty" style="padding:10px 0">카드 데이터 없음</div>';
+
+  // 서버 데이터 없으면 백그라운드 로드
+  if (!cards) {
+    call({ action: 'getCardSummary' }).then(data => {
+      if (data) {
+        MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
+        renderDashPayAnalysis(data, d);
+      }
+    }).catch(()=>{});
+  }
 }
 
 function renderCatBars(cats, budgets) {
@@ -3666,6 +3718,9 @@ function pickMeMob(name) {
         if (all.cats.expense) { ECATS = all.cats.expense.map(c=>c.name); ICATS = all.cats.income.map(c=>c.name); }
         if (all.cats.expense) all.cats.expense.forEach(c => { if(c.icon) ICONS[c.name]=c.icon; });
         MEM_CACHE['getCategories'] = { ts: Date.now(), data: all.cats };
+      }
+      if (all.cards) {
+        MEM_CACHE['getCardSummary'] = { ts: Date.now(), data: all.cards };
       }
       if (all.pays && all.pays.length) {
         PAYS = all.pays;
