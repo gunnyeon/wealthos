@@ -1328,9 +1328,13 @@ function cacheInvalidate(action) {
   const keys = INVALIDATE_ON[action] || [];
   keys.forEach(k => {
     if (k === 'getLedger_all') {
-      // 모든 월별 캐시 무효화
-      Object.keys(MEM_CACHE).filter(k2 => k2.startsWith('getLedger_')).forEach(k2 => delete MEM_CACHE[k2]);
-    } else {
+      // getLedger_YYYY-MM 캐시만 무효화
+      // getLedger_server_* 는 유지 (델타 계산 기준값)
+      Object.keys(MEM_CACHE)
+        .filter(k2 => k2.startsWith('getLedger_') && !k2.startsWith('getLedger_server_'))
+        .forEach(k2 => delete MEM_CACHE[k2]);
+    } else if (k !== 'getCardSummary') {
+      // getCardSummary 는 삭제 안 함 — refreshCardSummary가 로컬에서 즉시 갱신
       delete MEM_CACHE[k];
     }
   });
@@ -1383,10 +1387,10 @@ async function call(params) {
   ).toString();
   const fullUrl = url + (url.includes('?') ? '&' : '?') + qs;
 
-  // 쓰기: 30초 타임아웃, 최대 2회 시도
-  // 읽기: 15초 타임아웃, 1회
-  const timeout = isWrite ? 30000 : 15000;
-  const maxTry  = isWrite ? 2 : 1;
+  // 쓰기: 45초 타임아웃, 최대 2회
+  // 읽기: 25초 타임아웃, 최대 2회 (Apps Script 콜드스타트 대응)
+  const timeout = isWrite ? 45000 : 25000;
+  const maxTry  = 2; // 읽기도 1회 재시도
 
   let lastErr;
   for (let attempt = 0; attempt < maxTry; attempt++) {
@@ -1401,10 +1405,19 @@ async function call(params) {
     } catch(e) {
       lastErr = e;
       if (e.name === 'AbortError') {
-        if (attempt < maxTry - 1) continue; // 재시도
-        throw new Error('서버 응답 시간 초과 — 잠시 후 다시 시도하세요');
+        if (attempt < maxTry - 1) {
+          // 재시도 전 1초 대기 (Apps Script 재기동 대기)
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+        throw new Error('서버 응답 지연 — 네트워크를 확인하고 잠시 후 다시 시도하세요');
       }
-      throw e; // 타임아웃 외 오류는 즉시 throw
+      // 네트워크 오류 시 재시도
+      if (attempt < maxTry - 1 && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
+        await new Promise(r => setTimeout(r, 800));
+        continue;
+      }
+      throw e;
     }
   }
   throw lastErr;
@@ -1432,14 +1445,25 @@ async function doPoll() {
     S.poll_ts = d.timestamp;
     setSyncState('live');
     if (d.hasChanges) {
+      let otherChanged = false;
       (d.newTransactions || []).forEach(t => {
-        // 쓰기 중이거나 쓰기 직후면 폴링으로 덮어쓰기 차단
         if (t.member !== S.me && !S.writing && Date.now() - S.writeTs > 3000) {
           showAlert(`${t.member} · ${t.category} ${fmt(t.amount)}원`, '🔔');
           prependTxnRow(t, 'dash-txns');
           if (isActive('ledger')) refreshCalDay(t.date);
+          otherChanged = true;
         }
       });
+      // 다른 구성원 거래 발생 시 카드 누계도 서버에서 갱신
+      if (otherChanged) {
+        call({ action: 'getCardSummary' })
+          .then(data => {
+            if (data) {
+              MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
+              renderDashPayAnalysis(data, null);
+            }
+          }).catch(() => {});
+      }
       (d.newActivity || []).forEach(a => prependFeedRow(a, 'live-feed'));
       if (d.summary) {
         $('m-inc').textContent = fmt(d.summary.income);
@@ -1548,8 +1572,16 @@ async function loadDash() {
     S.budgets = d.budgets || {};
     renderDash(d);
   } catch(e) {
-    $('warn-area').innerHTML = `<div class="warn-b">⚠️ ${e.message}</div>`;
-    initMems(null); $('dash-time').textContent = '';
+    if (e.message && !e.message.includes('URL 미설정')) {
+      // 타임아웃 오류는 조용히 처리 (이미 캐시 데이터 표시 중)
+      if (!MEM_CACHE['getDashboard']) {
+        $('warn-area').innerHTML = `<div class="warn-b">⚠️ 서버 연결 중... 잠시 후 자동으로 재시도합니다.</div>`;
+        setTimeout(loadDash, 5000); // 5초 후 자동 재시도
+      }
+    } else {
+      $('warn-area').innerHTML = `<div class="warn-b">⚠️ ${e.message}</div>`;
+      initMems(null); $('dash-time').textContent = '';
+    }
   }
 }
 
@@ -1735,17 +1767,28 @@ function refreshCardSummary() {
       summary[pm].bal = summary[pm].inc - summary[pm].exp;
     });
   } else {
-    // 서버 원본 없으면 S.ledger 전체를 누계에 단순 반영
+    // 서버 원본 없음 → S.ledger 전체로 직접 반영
+    // 단, 이미 summary(getCardSummary)에 이번 달이 포함되어 있을 수 있으므로
+    // 이번 달 기준 재집계 후 반영
+    const curMap2 = {};
     curLedger.forEach(t => {
       const pm = t.payMethod || '미지정';
+      if (!curMap2[pm]) curMap2[pm] = { inc: 0, exp: 0 };
+      if (t.type === '수입') curMap2[pm].inc += t.amount;
+      else curMap2[pm].exp += t.amount;
+    });
+    // summary에서 이번 달 기존 값을 빼고 새 값 추가
+    // (getCardSummary가 전체 누계이므로 이번 달만 교체)
+    Object.entries(curMap2).forEach(([pm, v]) => {
       if (!summary[pm]) summary[pm] = { inc: 0, exp: 0, bal: 0 };
-      if (t.type === '수입') summary[pm].inc += t.amount;
-      else summary[pm].exp += t.amount;
+      // 이번 달 변경분을 그대로 반영 (서버 원본 없으므로 overwrite)
+      summary[pm].inc = Math.max(0, summary[pm].inc + v.inc);
+      summary[pm].exp = Math.max(0, summary[pm].exp + v.exp);
       summary[pm].bal = summary[pm].inc - summary[pm].exp;
     });
   }
 
-  // 즉시 렌더 (캐시는 업데이트하지 않음 — 서버 원본 유지)
+  // 즉시 렌더
   renderDashPayAnalysis(summary, null);
 }
 
@@ -3288,9 +3331,9 @@ async function deleteTxnFromModal() {
     await call({ action: 'deleteTransaction', id, desc, member: S.me, assetId });
     S.writeTs = Date.now();
     toast('🗑️ 삭제됐습니다');
+    refreshCardSummary(); // 캐시 무효화 전에 먼저
     cacheInvalidate('deleteTransaction');
-    refreshCardSummary();
-    setTimeout(loadDash, 1000);
+    setTimeout(loadDash, 1500);
   } catch(err) {
     S.ledger = backup;
     if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...backup] };
@@ -3448,10 +3491,10 @@ async function submitTxn() {
     }
 
     toast('✅ 저장됐습니다!');
-    cacheInvalidate(p.action);
     if (isActive('ledger')) { renderCal(); updateMonthSum(); if (S.selDate) renderDayPanel(S.selDate); }
-    refreshCardSummary();
-    setTimeout(loadDash, 1000);
+    refreshCardSummary(); // 캐시 무효화 전에 카드 갱신
+    cacheInvalidate(p.action); // getLedger 캐시 무효화 (getCardSummary는 보호)
+    setTimeout(loadDash, 1500);
     if (isActive('assets')) loadAssets();
   } catch(e) {
     toast('저장 실패 — 다시 시도해주세요', 'err');
@@ -3853,8 +3896,9 @@ function pickMeMob(name) {
       });
 
     } catch(e) {
-      // getAll 실패 시 개별 요청으로 폴백
-      loadDash();
+      // getAll 실패 시 5초 뒤 재시도
+      console.warn('preloadAll 실패:', e.message);
+      setTimeout(() => preloadAll().catch(()=>{ loadDash(); }), 5000);
     }
   }
 
