@@ -1713,21 +1713,8 @@ function showCatDrill(cat) {
 // 로컬 ledger 전체에서 카드별 누계 즉시 재계산 후 렌더
 // 카드 누계에 단일 거래 즉시 반영 (덧셈/뺄셈)
 function applyTxnToCardSummary(txn, sign) {
-  // sign: +1 = 추가, -1 = 삭제
-  const base = MEM_CACHE['getCardSummary'];
-  if (!base || !base.data) return; // 누계 없으면 스킵 (로드 후 자동 반영)
-  const pm = txn.payMethod || '미지정';
-  const amt = Number(txn.amount) || 0;
-  const data = base.data;
-  if (!data[pm]) data[pm] = { inc: 0, exp: 0, bal: 0 };
-  if (txn.type === '수입') {
-    data[pm].inc += sign * amt;
-  } else {
-    data[pm].exp += sign * amt;
-  }
-  data[pm].bal = data[pm].inc - data[pm].exp;
-  // 캐시 업데이트 (참조 공유이므로 자동 반영)
-  renderDashPayAnalysis(data, null);
+  // 낙관적 반영 비활성화 — 서버값만 신뢰 (중복 집계 방지)
+  // 거래 저장/삭제 후 getCardSummary 서버 재조회로만 갱신
 }
 
 // 구버전 호환 — 전체 재계산 (서버 응답 후 확정 시 사용)
@@ -3276,8 +3263,6 @@ async function deleteTxnFromModal() {
   closeM('mod-txn');
   S.writing = true;
   const backup = [...S.ledger];
-  const deletedTxn = S.ledger.find(t => t.id === id);
-  if (deletedTxn) applyTxnToCardSummary(deletedTxn, -1); // 즉시 카드 차감
   S.ledger = S.ledger.filter(t => t.id !== id);
   const ck = 'getLedger_' + calYM();
   if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...S.ledger] };
@@ -3412,19 +3397,16 @@ async function submitTxn() {
   if (editId) {
     // 수정 모드: 기존 거래 제거 후 새 거래 추가 (카드 델타)
     const oldTxnData = S.ledger.find(t => t.id === editId);
-    if (oldTxnData) applyTxnToCardSummary(oldTxnData, -1); // 기존 차감
     S.ledger = S.ledger.map(t => t.id === editId
       ? { ...t, date:p.date, type:p.type, category:p.category, desc:p.desc,
           amount:Number(p.amount), payMethod:p.payMethod, memo:p.memo, member:p.member,
           assetId: p.assetId || '' }
       : t
     );
-    applyTxnToCardSummary({ ...p, amount: Number(p.amount) }, +1); // 새 값 추가
   } else {
     // 신규 모드
     txn.assetId = p.assetId || '';
     S.ledger.unshift(txn);
-    applyTxnToCardSummary(txn, +1); // 즉시 카드 반영
     prependTxnRow(txn, 'dash-txns');
     prependFeedRow({
       time: new Date().toISOString(), member: p.member,
@@ -3496,8 +3478,6 @@ async function delTxn(id, desc, assetId, e) {
 
   S.writing = true;
   const backup = [...S.ledger];
-  const deletedTxn2 = S.ledger.find(t => t.id === id);
-  if (deletedTxn2) applyTxnToCardSummary(deletedTxn2, -1); // 즉시 카드 차감
   S.ledger = S.ledger.filter(t => t.id !== id);
   const ck = 'getLedger_' + calYM();
   if (MEM_CACHE[ck]) MEM_CACHE[ck] = { ts: Date.now(), data: [...S.ledger] };
