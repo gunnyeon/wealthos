@@ -770,19 +770,10 @@ body{
     </div>
   </div>
 
-  <!-- 구성원별 지출 + 목표 (2열, 모바일은 1열) -->
-  <div class="dash-mid">
-    <div class="card">
-      <div class="ct">구성원별 지출</div>
-      <div id="mem-bars"></div>
-    </div>
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div class="ct" style="margin-bottom:0">가족 목표</div>
-        <button class="btn bs bsm" onclick="go('goals')">전체</button>
-      </div>
-      <div id="dash-goals"></div>
-    </div>
+  <!-- 구성원별 지출 / 목표 — 숨김 (DOM만 유지) -->
+  <div style="display:none">
+    <div id="mem-bars"></div>
+    <div id="dash-goals"></div>
   </div>
 
   <!-- 최근 거래 -->
@@ -904,11 +895,8 @@ body{
       </div>
     </div>
   </div>
-  <!-- 월별 수입/지출 바 차트 -->
-  <div class="card" style="flex-shrink:0;">
-    <div class="ct">월별 수입 / 지출</div>
-    <div id="bar-chart" style="overflow-x:auto;-webkit-overflow-scrolling:touch;"></div>
-  </div>
+  <!-- 월별 수입/지출 바차트 (숨김) -->
+  <div style="display:none"><div id="bar-chart"></div></div>
   <!-- 카테고리 비중 -->
   <div class="card">
     <div class="ct" id="donut-title">이번 달 지출 비중</div>
@@ -1161,9 +1149,18 @@ const DEFAULT_ICATS = ['급여','부업','임대','기타수입'];
 const DEFAULT_PAYS  = ['김건년 카드','고희경 카드','생활비 카드','체크카드','신용카드','현금','계좌이체','간편결제'];
 // PAYS는 항상 DEFAULT_PAYS로 초기화 (서버 로드 전에도 사용 가능)
 
-let ECATS = [...DEFAULT_ECATS];
-let ICATS = [...DEFAULT_ICATS];
-let PAYS  = [...DEFAULT_PAYS];
+// 로컬 저장 헬퍼
+function _saveLocal(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
+}
+function _loadLocal(key) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(e) { return null; }
+}
+
+// 저장된 커스텀 카테고리 복원 (서버 로드 전에 즉시 사용 가능)
+let ECATS = _loadLocal('wo_ecats') || [...DEFAULT_ECATS];
+let ICATS = _loadLocal('wo_icats') || [...DEFAULT_ICATS];
+let PAYS  = _loadLocal('wo_pays')  || [...DEFAULT_PAYS];
 
 // 자산 연동 카테고리 — 지출로 잡히지만 자산에 더해짐
 const ASSET_LINK_CATS = new Set(['투자수익','적금','주식']);
@@ -1175,9 +1172,9 @@ async function loadCatsFromServer() {
       call({ action: 'getCategories' }),
       call({ action: 'getPayMethods' }),
     ]);
-    if (cats && cats.expense) ECATS = cats.expense.map(c => c.name);
-    if (cats && cats.income)  ICATS = cats.income.map(c => c.name);
-    if (Array.isArray(pays) && pays.length > 0) PAYS = pays;
+    if (cats && cats.expense) { ECATS = cats.expense.map(c => c.name); _saveLocal('wo_ecats', ECATS); }
+    if (cats && cats.income)  { ICATS = cats.income.map(c => c.name);  _saveLocal('wo_icats', ICATS); }
+    if (Array.isArray(pays) && pays.length > 0) { PAYS = pays; _saveLocal('wo_pays', PAYS); }
     // 아이콘 업데이트
     if (cats && cats.expense) {
       cats.expense.forEach(c => { if (c.icon) ICONS[c.name] = c.icon; });
@@ -1581,7 +1578,7 @@ function renderDash(d) {
   svSub.textContent = savAmt > 0 ? '적금 ' + fmt(savAmt) + '원' : '적금 없음';
   $('dash-time').textContent = d.updatedAt ? '업데이트: ' + rtime(d.updatedAt) : '';
 
-  const cats = Object.entries(d.categories || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const cats = Object.entries(d.categories || {}).filter(([,v])=>v>0).sort((a, b) => b[1] - a[1]);
   renderCatBars(cats, d.budgets || {});
 
     const exp = d.memberExpense || {}, total = Object.values(exp).reduce((s,v) => s+v, 0) || 1;
@@ -1610,9 +1607,16 @@ function renderDash(d) {
   }).join('') || '<div style="color:var(--muted);font-size:12px">목표를 추가해보세요</div>';
 
   const txns = (d.recentTxns || [])
-    .sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.createdAt||'').localeCompare(a.createdAt||''));
+    .sort((a,b) => {
+      // 날짜 내림차순 → createdAt 내림차순 → id 내림차순
+      const dc = (b.date||'').localeCompare(a.date||'');
+      if (dc !== 0) return dc;
+      const cc = (b.createdAt||'').localeCompare(a.createdAt||'');
+      if (cc !== 0) return cc;
+      return (b.id||'').localeCompare(a.id||'');
+    });
   $('dash-txns').innerHTML = txns.length
-    ? txns.slice(0,8).map(t => txnRow(t, false)).join('')
+    ? txns.slice(0,10).map(t => txnRow(t, false)).join('')
     : '<div class="empty"><div class="ei">📒</div>아직 거래 내역이 없습니다</div>';
 
   renderFeed(d.recentActivity || [], 'live-feed');
@@ -1856,26 +1860,55 @@ function onCalYearChange() {
   S.calYear = Number($('cal-year-sel').value);
   S.selDate = null;
   const wp = $('cal-panel-wrap'); if (wp) wp.style.display = 'none';
-  loadLedger();
+  _switchMonth();
 }
 
 function onCalMonthChange() {
   S.calMonth = Number($('cal-month-sel').value);
   S.selDate  = null;
   const wp = $('cal-panel-wrap'); if (wp) wp.style.display = 'none';
-  loadLedger();
+  _switchMonth();
 }
 
 function shiftMonth(delta) {
   S.calMonth += delta;
   if (S.calMonth < 0)  { S.calMonth = 11; S.calYear--; }
   if (S.calMonth > 11) { S.calMonth = 0;  S.calYear++; }
-  // 연도 범위 제한 (5년 전 ~ 2년 후)
   const now = new Date();
   S.calYear = Math.max(now.getFullYear() - 5, Math.min(now.getFullYear() + 2, S.calYear));
   S.selDate = null;
   const wp = $('cal-panel-wrap'); if (wp) wp.style.display = 'none';
-  loadLedger();
+  _switchMonth();
+}
+
+function _switchMonth() {
+  // 1. 캐시에 해당 월 데이터 있으면 즉시 렌더
+  const ym  = calYM();
+  const ck  = 'getLedger_' + ym;
+  const hit = MEM_CACHE[ck];
+  renderCalHeader();
+  if (hit && hit.data) {
+    S.ledger = hit.data;
+    renderCal(); updateMonthSum();
+  } else {
+    // 빈 달력 즉시 표시 후 로드
+    S.ledger = [];
+    renderCal(); updateMonthSum();
+    $('cal-grid').innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--muted);font-size:14px;">🔄 불러오는 중...</div>';
+  }
+  // 2. 서버에서 해당 월 데이터 로드
+  if (!S.writing && !(hit && Date.now() - hit.ts < 30000)) {
+    call({ action: 'getLedger', month: ym })
+      .then(d => {
+        const data = Array.isArray(d) ? d : [];
+        MEM_CACHE[ck] = { ts: Date.now(), data };
+        if (calYM() === ym) { // 아직 같은 달이면 렌더
+          S.ledger = data;
+          renderCal(); updateMonthSum();
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 function goThisMonth() {
@@ -2416,12 +2449,19 @@ async function loadAnalysis() {
   // 카테고리 추세
   // ── 카테고리별 월별 지출 비교 테이블 ────────────────────────
   // 모든 카테고리 수집 (상위 8개)
-  const catTotals = monthly.reduce((acc,d) => {
-    Object.entries(d.cats).forEach(([c,a]) => { acc[c]=(acc[c]||0)+a; });
-    return acc;
-  }, {});
+  // rows에서 직접 재집계 (cats 필드 누락 방지)
+  const catTotals = {};
+  monthly.forEach(d => {
+    // d.cats 사용 + d.rows 보완 집계
+    Object.entries(d.cats||{}).forEach(([c,a]) => { catTotals[c]=(catTotals[c]||0)+a; });
+    (d.rows||[]).filter(t=>t.type!=='수입').forEach(t => {
+      if (t.category && !(d.cats||{})[t.category])
+        catTotals[t.category]=(catTotals[t.category]||0)+t.amount;
+    });
+  });
   const topCatList = Object.entries(catTotals)
-    .sort((a,b)=>b[1]-a[1]).slice(0,8).map(([c])=>c);
+    .filter(([,v])=>v>0)
+    .sort((a,b)=>b[1]-a[1]).map(([c])=>c);
 
   if (!topCatList.length) {
     $('trend-chart').innerHTML = '<div class="empty" style="padding:12px 0">데이터 없음</div>';
@@ -2837,11 +2877,11 @@ async function addCat(type) {
   if (!nm) { toast('카테고리 이름을 입력하세요', 'err'); return; }
   try {
     await call({ action:'saveCategory', name:nm, type:type==='e'?'지출':'수입', member:S.me });
-    if (type === 'e') ECATS.push(nm);
-    else              ICATS.push(nm);
+    if (type === 'e') { ECATS.push(nm); _saveLocal('wo_ecats', ECATS); }
+    else              { ICATS.push(nm); _saveLocal('wo_icats', ICATS); }
     $(inId).value = '';
     renderCatList();
-    toast(`✅ "${nm}" 카테고리가 구글 시트에 추가됐습니다!`);
+    toast(`✅ "${nm}" 카테고리가 추가됐습니다!`);
   } catch(e) { toast(e.message, 'err'); }
 }
 
@@ -2850,8 +2890,8 @@ async function delCat(name, type) {
 구글 시트에서도 삭제됩니다.`)) return;
   try {
     await call({ action:'deleteCategory', name, member:S.me });
-    if (type === 'e') ECATS = ECATS.filter(c => c !== name);
-    else              ICATS = ICATS.filter(c => c !== name);
+    if (type === 'e') { ECATS = ECATS.filter(c => c !== name); _saveLocal('wo_ecats', ECATS); }
+    else              { ICATS = ICATS.filter(c => c !== name); _saveLocal('wo_icats', ICATS); }
     renderCatList();
     toast(`🗑️ "${name}" 삭제됐습니다`);
   } catch(e) { toast(e.message, 'err'); }
@@ -2862,10 +2902,10 @@ async function addPay() {
   if (!nm) { toast('결제수단 이름을 입력하세요', 'err'); return; }
   try {
     await call({ action:'savePayMethod', name:nm, member:S.me });
-    PAYS.push(nm);
+    PAYS.push(nm); _saveLocal('wo_pays', PAYS);
     $('pay-new').value = '';
     renderPayList();
-    toast(`✅ "${nm}" 결제수단이 구글 시트에 추가됐습니다!`);
+    toast(`✅ "${nm}" 결제수단이 추가됐습니다!`);
   } catch(e) { toast(e.message, 'err'); }
 }
 
@@ -2874,7 +2914,7 @@ async function delPay(name) {
 구글 시트에서도 삭제됩니다.`)) return;
   try {
     await call({ action:'deletePayMethod', name, member:S.me });
-    PAYS = PAYS.filter(p => p !== name);
+    PAYS = PAYS.filter(p => p !== name); _saveLocal('wo_pays', PAYS);
     renderPayList();
     toast(`🗑️ "${name}" 삭제됐습니다`);
   } catch(e) { toast(e.message, 'err'); }
