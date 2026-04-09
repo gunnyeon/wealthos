@@ -751,9 +751,15 @@ body{
 
   <!-- 카테고리 지출 + 드릴다운 -->
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <div class="ct" style="margin-bottom:0;">이번 달 지출 카테고리</div>
       <span style="font-size:11px;color:var(--muted);">눌러서 상세 보기 👆</span>
+    </div>
+    <!-- 합계 금액 -->
+    <div style="display:flex;justify-content:space-between;align-items:center;
+      padding:8px 10px;background:var(--red-lt);border-radius:10px;margin-bottom:10px;">
+      <span style="font-size:12px;color:var(--muted);font-weight:600;">이번 달 총 지출</span>
+      <span style="font-size:18px;font-weight:800;color:var(--red);" id="cat-total-exp">—</span>
     </div>
     <div id="cat-bars"></div>
     <!-- 드릴다운 패널 -->
@@ -776,19 +782,19 @@ body{
     <div id="dash-goals"></div>
   </div>
 
-  <!-- 최근 거래 -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <div class="ct" style="margin-bottom:0">최근 거래</div>
-      <button class="btn bs bsm" onclick="go('ledger')">전체</button>
-    </div>
-    <div class="tl" id="dash-txns"></div>
-  </div>
+  <!-- 최근 거래 (숨김) -->
+  <div style="display:none"><div class="tl" id="dash-txns"></div></div>
 
   <!-- 실시간 활동 (숨김 — 폴링용으로만 유지) -->
   <div style="display:none">
     <span id="feed-badge"></span>
     <div id="live-feed"></div>
+  </div>
+
+  <!-- 결제수단별 수입 / 지출 / 잔액 -->
+  <div class="card">
+    <div class="ct">결제수단별 수입 / 지출 / 잔액</div>
+    <div id="dash-pay-analysis"></div>
   </div>
 
 </section>
@@ -897,16 +903,12 @@ body{
   </div>
   <!-- 월별 수입/지출 바차트 (숨김) -->
   <div style="display:none"><div id="bar-chart"></div></div>
-  <!-- 카테고리 비중 -->
-  <div class="card">
-    <div class="ct" id="donut-title">이번 달 지출 비중</div>
-    <div id="donut-chart" style="display:flex;flex-direction:column;gap:8px;"></div>
-    <!-- 카테고리 드릴다운 (분석) -->
-    <div id="anal-cat-drill" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div style="font-size:13px;font-weight:700;" id="anal-drill-title"></div>
-        <button onclick="closeAnalDrill()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px;">✕</button>
-      </div>
+  <!-- 카테고리 비중 (숨김) -->
+  <div style="display:none">
+    <div id="donut-title"></div>
+    <div id="donut-chart"></div>
+    <div id="anal-cat-drill">
+      <div id="anal-drill-title"></div>
       <div id="anal-drill-list" class="tl"></div>
     </div>
   </div>
@@ -915,18 +917,10 @@ body{
     <div class="ct">카테고리별 월별 지출 비교</div>
     <div id="trend-chart" style="overflow-x:auto;-webkit-overflow-scrolling:touch;"></div>
   </div>
-  <!-- 수입 분석 -->
-  <div class="card">
-    <div class="ct">수입 유형별 금액 · 비중</div>
-    <div id="income-chart"></div>
-  </div>
-  <!-- 결제수단별 분석 -->
-  <div class="card" style="flex-shrink:0;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <div class="ct" style="margin-bottom:0">결제수단별 수입 / 지출 / 잔액</div>
-    </div>
-    <div id="pay-analysis" style="overflow-x:auto;"></div>
-  </div>
+  <!-- 수입 분석 (숨김) -->
+  <div style="display:none"><div id="income-chart"></div></div>
+  <!-- 결제수단별 분석 (숨김 — 대시보드로 이동) -->
+  <div style="display:none"><div id="pay-analysis"></div></div>
 </section>
 
 <!-- ── 활동 ── -->
@@ -1579,7 +1573,13 @@ function renderDash(d) {
   $('dash-time').textContent = d.updatedAt ? '업데이트: ' + rtime(d.updatedAt) : '';
 
   const cats = Object.entries(d.categories || {}).filter(([,v])=>v>0).sort((a, b) => b[1] - a[1]);
+  // 합계 금액 표시
+  const totalExpAmt = cats.reduce((s,[,v])=>s+v, 0);
+  const catTotalEl = $('cat-total-exp');
+  if (catTotalEl) catTotalEl.textContent = fmt(totalExpAmt) + '원';
   renderCatBars(cats, d.budgets || {});
+  // 대시보드 결제수단 분석 렌더 (이번 달 데이터 사용)
+  renderDashPayAnalysis(d);
 
     const exp = d.memberExpense || {}, total = Object.values(exp).reduce((s,v) => s+v, 0) || 1;
   $('mem-bars').innerHTML = S.members.map(m => {
@@ -1668,6 +1668,77 @@ function showCatDrill(cat) {
       .catch(() => {
         list.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px 0;">데이터 로드 실패 — 가계부 탭을 먼저 열어주세요</div>';
       });
+  }
+}
+
+function renderDashPayAnalysis(d) {
+  const el = $('dash-pay-analysis');
+  if (!el) return;
+  // d.recentTxns 또는 S.ledger에서 결제수단별 집계
+  const rows = S.ledger.length > 0 ? S.ledger : (d.recentTxns || []);
+  if (!rows.length) { el.innerHTML = '<div class="empty" style="padding:10px 0">데이터 없음</div>'; return; }
+
+  const payMap = {};
+  rows.forEach(t => {
+    const pm = t.payMethod || '미지정';
+    if (!payMap[pm]) payMap[pm] = { inc:0, exp:0 };
+    if (t.type === '수입') payMap[pm].inc += t.amount;
+    else payMap[pm].exp += t.amount;
+  });
+  const entries = Object.entries(payMap)
+    .filter(([,v])=>v.inc>0||v.exp>0)
+    .sort((a,b)=>(b[1].exp+b[1].inc)-(a[1].exp+a[1].inc));
+  if (!entries.length) { el.innerHTML = '<div class="empty" style="padding:10px 0">데이터 없음</div>'; return; }
+
+  const isMob = window.innerWidth <= 600;
+  const PCLRS = ['#2563eb','#059669','#d97706','#7c3aed','#dc2626','#0891b2'];
+  const totalExp = entries.reduce((s,[,v])=>s+v.exp,0)||1;
+
+  if (isMob) {
+    el.innerHTML = entries.map(([pm,v],i) => {
+      const bal = v.inc - v.exp;
+      const pct = Math.round(v.exp/totalExp*100);
+      return '<div style="background:var(--bg3);border-radius:12px;padding:12px 14px;margin-bottom:8px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+        + '<div style="display:flex;align-items:center;gap:7px;">'
+        + '<span style="width:10px;height:10px;border-radius:50%;background:'+PCLRS[i%6]+';display:inline-block;flex-shrink:0;"></span>'
+        + '<span style="font-size:14px;font-weight:700;">💳 '+pm+'</span>'
+        + '</div>'
+        + '<span style="font-size:12px;color:var(--muted);font-weight:600;">'+pct+'%</span>'
+        + '</div>'
+        + '<div style="height:4px;background:var(--bg4);border-radius:2px;margin-bottom:10px;">'
+        + '<div style="width:'+pct+'%;height:100%;background:'+PCLRS[i%6]+';border-radius:2px;"></div>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;text-align:center;">'
+        + '<div><div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:2px;">수입</div>'
+        + '<div style="font-size:12px;font-weight:700;color:var(--green);">'+(v.inc>0?'+'+fmt(v.inc)+'원':'—')+'</div></div>'
+        + '<div style="border-left:1px solid var(--border);border-right:1px solid var(--border);">'
+        + '<div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:2px;">지출</div>'
+        + '<div style="font-size:12px;font-weight:700;color:var(--red);">'+(v.exp>0?'-'+fmt(v.exp)+'원':'—')+'</div></div>'
+        + '<div><div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:2px;">잔액</div>'
+        + '<div style="font-size:12px;font-weight:700;color:'+(bal>=0?'var(--green)':'var(--red)')+';">'+(bal>=0?'+':'')+fmt(bal)+'원</div></div>'
+        + '</div></div>';
+    }).join('');
+  } else {
+    el.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+      + '<thead><tr style="border-bottom:2px solid var(--border);">'
+      + '<th style="text-align:left;padding:7px 10px;font-size:11px;color:var(--muted);font-weight:700;">결제수단</th>'
+      + '<th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">수입</th>'
+      + '<th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">지출</th>'
+      + '<th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">잔액</th>'
+      + '<th style="text-align:right;padding:7px 8px;font-size:11px;color:var(--muted);font-weight:700;">비중</th>'
+      + '</tr></thead><tbody>'
+      + entries.map(([pm,v],i)=>{
+          const bal=v.inc-v.exp, pct=Math.round(v.exp/totalExp*100);
+          return '<tr style="border-bottom:1px solid var(--border);">'
+            +'<td style="padding:8px 10px;font-weight:600;"><span style="width:9px;height:9px;border-radius:50%;background:'+PCLRS[i%6]+';display:inline-block;margin-right:6px;"></span>💳 '+pm+'</td>'
+            +'<td style="padding:8px 8px;text-align:right;color:var(--green);font-weight:600;">'+(v.inc>0?'+'+fmt(v.inc)+'원':'—')+'</td>'
+            +'<td style="padding:8px 8px;text-align:right;color:var(--red);font-weight:600;">'+(v.exp>0?'-'+fmt(v.exp)+'원':'—')+'</td>'
+            +'<td style="padding:8px 8px;text-align:right;font-weight:700;color:'+(bal>=0?'var(--green)':'var(--red)')+';">'+(bal>=0?'+':'')+fmt(bal)+'원</td>'
+            +'<td style="padding:8px 8px;text-align:right;"><span style="font-weight:700;color:'+PCLRS[i%6]+';background:'+PCLRS[i%6]+'18;padding:2px 7px;border-radius:12px;font-size:11px;">'+pct+'%</span></td>'
+            +'</tr>';
+        }).join('')
+      + '</tbody></table>';
   }
 }
 
@@ -2505,22 +2576,34 @@ async function loadAnalysis() {
                   ${ICONS[cat]||'•'} ${cat}
                 </td>
                 ${monthly.map(d=>{
-                  const v = d.cats[cat]||0;
+                  const v    = d.cats[cat]||0;
                   const barW = Math.round(v/maxVal*100);
+                  // 해당 월 전체 지출 대비 비중
+                  const mTot  = Object.values(d.cats||{}).reduce((s,x)=>s+x,0)||1;
+                  const mPct  = v>0 ? Math.round(v/mTot*100) : 0;
                   return `<td style="padding:6px 8px;text-align:right;vertical-align:middle;">
                     ${v>0?`
                       <div style="font-size:12px;font-weight:700;color:var(--red);
                         white-space:nowrap;">${fmtShort(v)}</div>
-                      <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px;">
+                      <div style="font-size:10px;color:${CLRS[ci%8]};font-weight:700;
+                        margin-top:1px;">${mPct}%</div>
+                      <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:2px;">
                         <div style="width:${barW}%;height:100%;
                           background:${CLRS[ci%8]};border-radius:2px;"></div>
                       </div>
                     `:'<span style="color:var(--border);font-size:12px;">—</span>'}
                   </td>`;
                 }).join('')}
-                <td style="padding:8px 8px;text-align:right;font-weight:800;
-                  color:var(--red);border-left:1px solid var(--border);
-                  white-space:nowrap;font-size:13px;">${fmt(rowTotal)}원</td>
+                ${(()=>{
+                  const allTotal=monthly.reduce((s,d)=>s+Object.values(d.cats||{}).reduce((a,v)=>a+v,0),0)||1;
+                  const rowPct=Math.round(rowTotal/allTotal*100);
+                  return `<td style="padding:8px 8px;text-align:right;font-weight:800;
+                    color:var(--red);border-left:1px solid var(--border);
+                    white-space:nowrap;font-size:13px;">
+                    ${fmt(rowTotal)}원
+                    <div style="font-size:10px;color:${CLRS[ci%8]};font-weight:700;">${rowPct}%</div>
+                  </td>`;
+                })()}
               </tr>`;
             }).join('')}
           </tbody>
