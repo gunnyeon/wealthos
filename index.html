@@ -1169,8 +1169,14 @@ async function loadCatsFromServer() {
       call({ action: 'getCategories' }),
       call({ action: 'getPayMethods' }),
     ]);
-    if (cats && cats.expense) { ECATS = cats.expense.map(c => c.name); _saveLocal('wo_ecats', ECATS); }
-    if (cats && cats.income)  { ICATS = cats.income.map(c => c.name);  _saveLocal('wo_icats', ICATS); }
+    if (cats && cats.expense) {
+      const svE = cats.expense.map(c => c.name).filter(Boolean);
+      const svI = (cats.income||[]).map(c => c.name).filter(Boolean);
+      ECATS = [...new Set([...svE, ...ECATS])];
+      ICATS = [...new Set([...svI, ...ICATS])];
+      _saveLocal('wo_ecats', ECATS);
+      _saveLocal('wo_icats', ICATS);
+    }
     if (Array.isArray(pays) && pays.length > 0) { PAYS = pays; _saveLocal('wo_pays', PAYS); }
     // 아이콘 업데이트
     if (cats && cats.expense) {
@@ -3898,8 +3904,16 @@ function pickMeMob(name) {
       }
       // 카테고리/결제수단
       if (all.cats) {
-        if (all.cats.expense) { ECATS = all.cats.expense.map(c=>c.name); ICATS = all.cats.income.map(c=>c.name); }
-        if (all.cats.expense) all.cats.expense.forEach(c => { if(c.icon) ICONS[c.name]=c.icon; });
+        if (all.cats.expense) {
+          const svE = all.cats.expense.map(c=>c.name).filter(Boolean);
+          const svI = (all.cats.income||[]).map(c=>c.name).filter(Boolean);
+          // 서버+로컬 합집합 (로컬에서 추가한 항목 유실 방지)
+          ECATS = [...new Set([...svE, ...ECATS])];
+          ICATS = [...new Set([...svI, ...ICATS])];
+          _saveLocal('wo_ecats', ECATS);
+          _saveLocal('wo_icats', ICATS);
+          all.cats.expense.forEach(c => { if(c.icon) ICONS[c.name]=c.icon; });
+        }
         MEM_CACHE['getCategories'] = { ts: Date.now(), data: all.cats };
       }
       // 카드 당월 기준 즉시 렌더 (S.ledger 기반)
