@@ -1513,12 +1513,15 @@ function initMems(list) {
 }
 
 function renderPills() {
-  $('mem-pills').innerHTML = S.members.map(m =>
-    `<button class="mp ${m.name === S.me ? 'on' : ''}" onclick="pickMe('${esc(m.name)}',this)">
-      <div class="dot" style="background:${m.color || '#94a3b8'}"></div>
-      <span>${m.emoji || '👤'} ${m.name}</span>
-    </button>`
-  ).join('');
+  $('mem-pills').innerHTML = S.members.map(m => {
+    // color가 #으로 시작하지 않으면 (이모지/이름이 섞인 구 데이터) 기본색 사용
+    const color = (m.color && String(m.color).startsWith('#')) ? m.color : '#94a3b8';
+    const emoji = (m.emoji && !String(m.emoji).startsWith('#')) ? m.emoji : '👤';
+    return `<button class="mp ${m.name === S.me ? 'on' : ''}" onclick="pickMe('${esc(m.name)}',this)">
+      <div class="dot" style="background:${color}"></div>
+      <span>${emoji} ${m.name}</span>
+    </button>`;
+  }).join('');
 }
 
 function pickMe(name, el) {
@@ -3027,12 +3030,16 @@ async function loadSettings() {
     urlStatus.textContent = apiUrl ? '✅ 연결됨: ' + apiUrl.slice(0,55)+'...' : '⚠️ URL 미설정';
     urlStatus.style.color = apiUrl ? 'var(--green)' : 'var(--amber)';
   }
-  $('mem-list').innerHTML = S.members.map(m =>
-    `<div class="mem-item">
-      <span style="font-size:20px">${m.emoji||'👤'}</span>
+  $('mem-list').innerHTML = S.members.map(m => {
+    const color = (m.color && String(m.color).startsWith('#')) ? m.color : '#94a3b8';
+    const emoji = (m.emoji && !String(m.emoji).startsWith('#')) ? m.emoji : '👤';
+    return `<div class="mem-item">
+      <div style="width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></div>
+      <span style="font-size:20px">${emoji}</span>
       <span style="font-weight:600">${m.name}</span>
       <span style="font-size:12px;color:var(--muted)">${m.role||''}</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   // 로컬 캐시로 즉시 렌더 (서버 기다리지 않음)
   renderBudgetForm();
@@ -3070,14 +3077,16 @@ async function loadSettings() {
 
 function renderCatList() {
   const mk = (arr, id, type) => {
+    const el = $(id);
+    if (!el) return; // 설정 페이지가 아닐 때 안전하게 스킵
     const bg  = type === 'e' ? '#fee2e2' : '#d1fae5';
     const clr = type === 'e' ? '#991b1b' : '#065f46';
-    $(id).innerHTML = arr.map(c =>
+    el.innerHTML = (Array.isArray(arr) ? arr : []).map(c =>
       `<span style="display:inline-flex;align-items:center;gap:4px;
         background:${bg};color:${clr};
         padding:5px 11px;border-radius:20px;font-size:13px;font-weight:600;">
         ${ICONS[c]||'•'} ${c}
-        <button onclick="delCat('${c}','${type}')"
+        <button onclick="delCat('${esc(c)}','${type}')"
           style="background:none;border:none;cursor:pointer;font-size:13px;
             color:${clr};padding:0 0 0 4px;line-height:1;font-weight:700;">✕</button>
       </span>`
@@ -3088,7 +3097,9 @@ function renderCatList() {
 }
 
 function renderPayList() {
-  $('pay-list').innerHTML = PAYS.map(p =>
+  const payEl = $('pay-list');
+  if (!payEl) return;
+  payEl.innerHTML = (Array.isArray(PAYS) ? PAYS : []).map(p =>
     `<span style="display:inline-flex;align-items:center;gap:4px;
       background:#dbeafe;color:#1e40af;
       padding:5px 11px;border-radius:20px;font-size:13px;font-weight:600;">
@@ -3752,17 +3763,19 @@ function renderMobMemBar() {
   const bar = $('mob-mem-bar');
   if (!bar || !isMobile()) return;
   bar.style.display = 'block';
-  bar.innerHTML = S.members.map(m =>
-    `<button onclick="pickMeMob('${esc(m.name)}')"
+  bar.innerHTML = S.members.map(m => {
+    const color = (m.color && String(m.color).startsWith('#')) ? m.color : '#94a3b8';
+    const emoji = (m.emoji && !String(m.emoji).startsWith('#')) ? m.emoji : '👤';
+    return `<button onclick="pickMeMob('${esc(m.name)}')"
       style="display:inline-flex;align-items:center;gap:5px;
         margin-right:6px;padding:6px 12px;border-radius:20px;border:none;cursor:pointer;
         font-size:13px;font-weight:600;font-family:inherit;
-        background:${m.name===S.me?m.color||'var(--accent)':'var(--bg3)'};
+        background:${m.name===S.me?color:'var(--bg3)'};
         color:${m.name===S.me?'#fff':'var(--muted)'};
         transition:all .15s;">
-      ${m.emoji||'👤'} ${m.name}
-    </button>`
-  ).join('');
+      ${emoji} ${m.name}
+    </button>`;
+  }).join('');
 }
 
 function pickMeMob(name) {
