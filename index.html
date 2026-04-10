@@ -791,9 +791,12 @@ body{
     <div id="live-feed"></div>
   </div>
 
-  <!-- 카드별 누계 수입 / 지출 / 잔액 -->
+  <!-- 카드별 당월 수입 / 지출 / 잔액 -->
   <div class="card">
-    <div class="ct">카드별 누계 수입 · 지출 · 잔액</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="ct" style="margin-bottom:0;">카드별 수입 · 지출 · 잔액</div>
+      <span id="dash-pay-month" style="font-size:11px;color:var(--accent);font-weight:700;background:var(--acc-lt);padding:3px 9px;border-radius:20px;"></span>
+    </div>
     <div id="dash-pay-analysis"></div>
   </div>
 
@@ -1613,15 +1616,8 @@ function renderDash(d) {
   const catTotalEl = $('cat-total-exp');
   if (catTotalEl) catTotalEl.textContent = fmt(totalExpAmt) + '원';
   renderCatBars(cats, d.budgets || {});
-  // 대시보드 결제수단 분석 렌더 (이번 달 데이터 사용)
-  // 카드 데이터: 로컬 계산 우선 (즉시), 서버 캐시 보완
-  const cardHit = MEM_CACHE['getCardSummary'];
-  if (cardHit && cardHit.data) {
-    renderDashPayAnalysis(cardHit.data, d);
-  } else {
-    // 로컬 캐시로 즉시 계산
-    refreshCardSummary();
-  }
+  // 카드별 당월 기준 — S.ledger에서 즉시 계산 (서버 추가 호출 없음)
+  renderDashPayAnalysis(null, d);
 
     const exp = d.memberExpense || {}, total = Object.values(exp).reduce((s,v) => s+v, 0) || 1;
   $('mem-bars').innerHTML = S.members.map(m => {
@@ -1720,116 +1716,91 @@ function applyTxnToCardSummary(txn, sign) {
   // 거래 저장/삭제 후 getCardSummary 서버 재조회로만 갱신
 }
 
-// 구버전 호환 — 전체 재계산 (서버 응답 후 확정 시 사용)
+// 당월 기준 카드 재렌더 (S.ledger 기반, 서버 호출 없음)
 function refreshCardSummary() {
-  const base = MEM_CACHE['getCardSummary'];
-  if (!base || !base.data) {
-    // 누계 없으면 서버에서 로드
-    call({ action: 'getCardSummary' })
-      .then(data => {
-        if (data) {
-          MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
-          renderDashPayAnalysis(data, null);
-        }
-      }).catch(() => {});
-    return;
-  }
-  // 캐시 있으면 그대로 렌더 (applyTxnToCardSummary로 이미 반영됨)
-  renderDashPayAnalysis(base.data, null);
+  renderDashPayAnalysis(null, null);
 }
 
 function _saveLedgerServerCopy(ym, data) {
   MEM_CACHE['getLedger_server_' + ym] = { ts: Date.now(), data: [...(data||[])] };
 }
 
+// 당월 기준 카드별 수입/지출/잔액 렌더
 function renderDashPayAnalysis(cards, d) {
   const el = $('dash-pay-analysis');
   if (!el) return;
 
-  // 카드 목록: 김건년 카드, 고희경 카드, 생활비 카드 (카드 포함된 것만)
-  // 체크카드·신용카드 제외, 이름에 '카드' 포함된 개인 카드만
+  // ── 당월 기준: S.ledger에서 직접 집계 ──────────────────────
   const EXCLUDE_CARDS = ['체크카드', '신용카드'];
   const CARD_TARGETS = PAYS.filter(p => p.includes('카드') && !EXCLUDE_CARDS.includes(p));
 
-  // cards 서버 데이터 있으면 사용, 없으면 S.ledger로 직접 집계
-  let summary = {};
-  if (cards && Object.keys(cards).length > 0) {
-    summary = cards;
-  } else {
-    // S.ledger 전체(이번 달) 기반 집계 — 서버 응답 전 임시
-    const rows = S.ledger;
-    rows.forEach(t => {
-      const pm = t.payMethod || '미지정';
-      if (!summary[pm]) summary[pm] = { inc:0, exp:0, bal:0 };
-      if (t.type==='수입') summary[pm].inc += t.amount;
-      else summary[pm].exp += t.amount;
-    });
-    Object.keys(summary).forEach(pm => { summary[pm].bal = summary[pm].inc - summary[pm].exp; });
-  }
+  // S.ledger(이번 달 가계부)에서 카드별 집계
+  const summary = {};
+  S.ledger.forEach(t => {
+    const pm = t.payMethod || '미지정';
+    if (!summary[pm]) summary[pm] = { inc: 0, exp: 0 };
+    if (t.type === '수입') summary[pm].inc += t.amount;
+    else summary[pm].exp += t.amount;
+  });
 
-  // 표시할 카드 목록 (카드 타겟 + 데이터 있는 것)
+  // 표시 대상 카드
   const targets = CARD_TARGETS.length > 0 ? CARD_TARGETS
-    : Object.keys(summary).filter(p=>p.includes('카드') && !EXCLUDE_CARDS.includes(p));
+    : Object.keys(summary).filter(p => p.includes('카드') && !EXCLUDE_CARDS.includes(p));
 
-  if (!targets.length && !Object.keys(summary).length) {
-    el.innerHTML = '<div class="empty" style="padding:10px 0">카드 데이터 없음</div>';
-    // 서버에서 카드 데이터 로드
-    call({ action: 'getCardSummary' }).then(data => {
-      if (data) MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
-      renderDashPayAnalysis(data, d);
-    }).catch(()=>{});
+  // 당월 표시
+  const now = new Date();
+  const monthLabel = (S.calYear || now.getFullYear()) + '년 ' + ((S.calMonth !== undefined ? S.calMonth : now.getMonth()) + 1) + '월';
+  const monthEl = $('dash-pay-month');
+  if (monthEl) monthEl.textContent = monthLabel + ' 기준';
+
+  if (!targets.length) {
+    el.innerHTML = '<div class="empty" style="padding:10px 0;font-size:13px;color:var(--muted);">이번 달 카드 거래 없음</div>';
     return;
   }
 
-  const CARD_CLRS = ['#2563eb','#059669','#d97706','#7c3aed','#dc2626','#0891b2'];
+  const CARD_CLRS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#dc2626', '#0891b2'];
 
   let html = '';
   targets.forEach((pm, i) => {
-    const v   = summary[pm] || { inc:0, exp:0, bal:0 };
+    const v   = summary[pm] || { inc: 0, exp: 0 };
     const bal = v.inc - v.exp;
-    const balColor = bal >= 0 ? 'var(--green)' : 'var(--red)';
-    const expRatio = v.inc > 0 ? Math.min(Math.round(v.exp/v.inc*100),100) : (v.exp>0?100:0);
+    const balColor  = bal >= 0 ? 'var(--green)' : 'var(--red)';
+    const expRatio  = v.inc > 0 ? Math.min(Math.round(v.exp / v.inc * 100), 100) : (v.exp > 0 ? 100 : 0);
     const clr = CARD_CLRS[i % CARD_CLRS.length];
+    const hasData = v.inc > 0 || v.exp > 0;
 
     html += '<div style="background:var(--bg);border:1.5px solid var(--border);'
-      + 'border-left:4px solid '+clr+';border-radius:12px;padding:14px;margin-bottom:10px;">'
+      + 'border-left:4px solid ' + clr + ';border-radius:12px;padding:14px;margin-bottom:10px;">'
       // 카드 이름
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
-      + '<span style="font-size:14px;font-weight:800;color:'+clr+';">💳 '+pm+'</span>'
-      + '<span style="font-size:11px;color:var(--muted);">전체 누계</span>'
+      + '<span style="font-size:14px;font-weight:800;color:' + clr + ';">💳 ' + pm + '</span>'
+      + (hasData ? '' : '<span style="font-size:11px;color:var(--muted);">거래 없음</span>')
       + '</div>'
       // 수입 / 지출 / 잔액 3열
       + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;margin-bottom:10px;">'
       + '<div><div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:3px;">수입</div>'
-      + '<div style="font-size:13px;font-weight:800;color:var(--green);">'+(v.inc>0?'+'+fmt(v.inc):v.inc===0?'0':'—')+'원</div></div>'
+      + '<div style="font-size:13px;font-weight:800;color:var(--green);">' + (v.inc > 0 ? '+' + fmt(v.inc) : '0') + '원</div></div>'
       + '<div style="border-left:1px solid var(--border);border-right:1px solid var(--border);">'
       + '<div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:3px;">지출</div>'
-      + '<div style="font-size:13px;font-weight:800;color:var(--red);">'+(v.exp>0?'-'+fmt(v.exp):v.exp===0?'0':'—')+'원</div></div>'
+      + '<div style="font-size:13px;font-weight:800;color:var(--red);">' + (v.exp > 0 ? '-' + fmt(v.exp) : '0') + '원</div></div>'
       + '<div><div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:3px;">잔액</div>'
-      + '<div style="font-size:13px;font-weight:800;color:'+balColor+';">'+(bal>=0?'+':'')+fmt(bal)+'원</div></div>'
-      + '</div>'
-      // 지출 비율 바
-      + '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px;">'
-      + '<span>지출 비율</span>'
-      + '<span style="font-weight:700;color:'+(expRatio>=90?'var(--red)':expRatio>=70?'var(--amber)':'var(--green)')+'">'+expRatio+'%</span>'
-      + '</div>'
-      + '<div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;">'
-      + '<div style="height:100%;width:'+expRatio+'%;background:'+(expRatio>=90?'var(--red)':expRatio>=70?'var(--amber)':clr)+';border-radius:3px;transition:width .5s;"></div>'
-      + '</div>'
+      + '<div style="font-size:13px;font-weight:800;color:' + balColor + ';">' + (bal >= 0 ? '+' : '') + fmt(bal) + '원</div></div>'
       + '</div>';
+
+    // 거래 있을 때만 지출 비율 바 표시
+    if (hasData) {
+      html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px;">'
+        + '<span>지출 비율</span>'
+        + '<span style="font-weight:700;color:' + (expRatio >= 90 ? 'var(--red)' : expRatio >= 70 ? 'var(--amber)' : 'var(--green)') + '">' + expRatio + '%</span>'
+        + '</div>'
+        + '<div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;">'
+        + '<div style="height:100%;width:' + expRatio + '%;background:' + (expRatio >= 90 ? 'var(--red)' : expRatio >= 70 ? 'var(--amber)' : clr) + ';border-radius:3px;transition:width .5s;"></div>'
+        + '</div>';
+    }
+    html += '</div>';
   });
 
-  el.innerHTML = html || '<div class="empty" style="padding:10px 0">카드 데이터 없음</div>';
-
-  // 서버 데이터 없으면 백그라운드 로드
-  if (!cards) {
-    call({ action: 'getCardSummary' }).then(data => {
-      if (data) {
-        MEM_CACHE['getCardSummary'] = { ts: Date.now(), data };
-        renderDashPayAnalysis(data, d);
-      }
-    }).catch(()=>{});
-  }
+  el.innerHTML = html;
 }
 
 function renderCatBars(cats, budgets) {
@@ -3021,7 +2992,7 @@ function feedRow(a) {
 // 설정
 // ══════════════════════════════════════════════════════
 async function loadSettings() {
-  // ── 1. 즉시 로컬 데이터로 표시 ───────────────────────────────
+  // ── 1. API URL 상태 ──────────────────────────────────────────
   const apiUrl = getApiUrl();
   const urlInput = $('api-url-input');
   const urlStatus = $('api-url-status');
@@ -3030,58 +3001,88 @@ async function loadSettings() {
     urlStatus.textContent = apiUrl ? '✅ 연결됨: ' + apiUrl.slice(0,55)+'...' : '⚠️ URL 미설정';
     urlStatus.style.color = apiUrl ? 'var(--green)' : 'var(--amber)';
   }
-  $('mem-list').innerHTML = S.members.map(m => {
-    const color = (m.color && String(m.color).startsWith('#')) ? m.color : '#94a3b8';
-    const emoji = (m.emoji && !String(m.emoji).startsWith('#')) ? m.emoji : '👤';
-    return `<div class="mem-item">
-      <div style="width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></div>
-      <span style="font-size:20px">${emoji}</span>
-      <span style="font-weight:600">${m.name}</span>
-      <span style="font-size:12px;color:var(--muted)">${m.role||''}</span>
-    </div>`;
-  }).join('');
 
-  // 로컬 캐시로 즉시 렌더 (서버 기다리지 않음)
+  // ── 2. 구성원 목록 ──────────────────────────────────────────
+  const memEl = $('mem-list');
+  if (memEl) {
+    memEl.innerHTML = S.members.map(m => {
+      const color = (m.color && String(m.color).startsWith('#')) ? m.color : '#94a3b8';
+      const emoji = (m.emoji && !String(m.emoji).startsWith('#')) ? m.emoji : '👤';
+      return `<div class="mem-item">
+        <div style="width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0;"></div>
+        <span style="font-size:20px">${emoji}</span>
+        <span style="font-weight:600">${m.name}</span>
+        <span style="font-size:12px;color:var(--muted)">${m.role||''}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ── 3. 로컬 데이터로 즉시 렌더 ─────────────────────────────
   renderBudgetForm();
   renderCatList();
   renderPayList();
 
-  // ── 2. 백그라운드에서 서버 동기화 ────────────────────────────
-  const bHit   = MEM_CACHE['getBudgets'];
-  const catHit = MEM_CACHE['getCategories'];
-  const payHit = MEM_CACHE['getPayMethods'];
-  const needSync = !bHit || !catHit || !payHit
-    || Date.now() - (bHit.ts||0) > 120000;
+  // ── 4. 서버에서 항상 최신 카테고리/결제수단 로드 ─────────────
+  // (캐시와 무관하게 항상 서버 조회 — 표시 안 되는 문제 근본 해결)
+  if (!apiUrl) return;
+  try {
+    // 캐시 강제 무효화 후 서버에서 새로 로드
+    delete MEM_CACHE['getCategories'];
+    delete MEM_CACHE['getPayMethods'];
+    delete MEM_CACHE['getBudgets'];
 
-  if (needSync) {
-    try {
-      const [b, cats, pays] = await Promise.all([
-        call({ action: 'getBudgets' }),
-        call({ action: 'getCategories' }),
-        call({ action: 'getPayMethods' }),
-      ]);
-      let changed = false;
-      if (b && typeof b === 'object') { S.budgets = b; changed = true; }
-      if (cats && cats.expense) {
-        ECATS = cats.expense.map(c=>c.name); _saveLocal('wo_ecats', ECATS);
-        ICATS = cats.income.map(c=>c.name);  _saveLocal('wo_icats', ICATS);
-        changed = true;
-      }
-      if (Array.isArray(pays) && pays.length) {
-        PAYS = pays; _saveLocal('wo_pays', PAYS); changed = true;
-      }
-      if (changed) { renderBudgetForm(); renderCatList(); renderPayList(); }
-    } catch(e) {}
+    const [cats, pays, b] = await Promise.all([
+      call({ action: 'getCategories' }),
+      call({ action: 'getPayMethods' }),
+      call({ action: 'getBudgets' }),
+    ]);
+
+    let changed = false;
+
+    if (cats && Array.isArray(cats.expense) && cats.expense.length > 0) {
+      ECATS = cats.expense.map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
+      ICATS = (cats.income || []).map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
+      _saveLocal('wo_ecats', ECATS);
+      _saveLocal('wo_icats', ICATS);
+      // 아이콘 업데이트
+      cats.expense.forEach(c => { if (c.icon) ICONS[c.name] = c.icon; });
+      (cats.income||[]).forEach(c => { if (c.icon) ICONS[c.name] = c.icon; });
+      changed = true;
+    }
+    if (Array.isArray(pays) && pays.length > 0) {
+      PAYS = pays.map(p => typeof p === 'string' ? p : (p.name || p)).filter(Boolean);
+      _saveLocal('wo_pays', PAYS);
+      changed = true;
+    }
+    if (b && typeof b === 'object') {
+      S.budgets = b;
+      changed = true;
+    }
+
+    // 서버 데이터로 다시 렌더
+    if (changed) {
+      renderBudgetForm();
+      renderCatList();
+      renderPayList();
+    }
+  } catch(e) {
+    // 서버 오류 시 로컬 데이터라도 표시 (이미 위에서 렌더됨)
+    console.warn('설정 서버 동기화 실패:', e.message);
   }
 }
 
 function renderCatList() {
-  const mk = (arr, id, type) => {
+  const mk = (arr, id, type, fallback) => {
     const el = $(id);
-    if (!el) return; // 설정 페이지가 아닐 때 안전하게 스킵
+    if (!el) return;
     const bg  = type === 'e' ? '#fee2e2' : '#d1fae5';
     const clr = type === 'e' ? '#991b1b' : '#065f46';
-    el.innerHTML = (Array.isArray(arr) ? arr : []).map(c =>
+    const list = (Array.isArray(arr) && arr.length > 0) ? arr : (fallback || []);
+    if (!list.length) {
+      el.innerHTML = '<span style="color:var(--muted);font-size:13px;">서버에서 불러오는 중...</span>';
+      return;
+    }
+    el.innerHTML = list.map(c =>
       `<span style="display:inline-flex;align-items:center;gap:4px;
         background:${bg};color:${clr};
         padding:5px 11px;border-radius:20px;font-size:13px;font-weight:600;">
@@ -3092,8 +3093,8 @@ function renderCatList() {
       </span>`
     ).join('');
   };
-  mk(ECATS, 'ecat-list', 'e');
-  mk(ICATS, 'icat-list', 'i');
+  mk(ECATS, 'ecat-list', 'e', DEFAULT_ECATS);
+  mk(ICATS, 'icat-list', 'i', DEFAULT_ICATS);
 }
 
 function renderPayList() {
@@ -3285,12 +3286,8 @@ async function deleteTxnFromModal() {
     S.writeTs = Date.now();
     toast('🗑️ 삭제됐습니다');
     cacheInvalidate('deleteTransaction');
-    // 클라이언트 카드 캐시 강제 삭제 후 서버 최신값 재조회
-    delete MEM_CACHE['getCardSummary'];
-    call({ action: 'getCardSummary' })
-      .then(data => {
-        if (data) { MEM_CACHE['getCardSummary'] = { ts: Date.now(), data }; renderDashPayAnalysis(data, null); }
-      }).catch(() => {});
+    // 당월 기준이므로 S.ledger 변경 즉시 재렌더 (서버 추가 호출 불필요)
+    renderDashPayAnalysis(null, null);
     setTimeout(loadDash, 1500);
   } catch(err) {
     S.ledger = backup;
@@ -3837,10 +3834,9 @@ function pickMeMob(name) {
         if (all.cats.expense) all.cats.expense.forEach(c => { if(c.icon) ICONS[c.name]=c.icon; });
         MEM_CACHE['getCategories'] = { ts: Date.now(), data: all.cats };
       }
-      if (all.cards) {
-        MEM_CACHE['getCardSummary'] = { ts: Date.now(), data: all.cards };
-        // 카드 누계 즉시 렌더
-        renderDashPayAnalysis(all.cards, null);
+      // 카드 당월 기준 즉시 렌더 (S.ledger 기반)
+      if (all.ledger) {
+        renderDashPayAnalysis(null, null);
       }
       if (all.pays && all.pays.length) {
         PAYS = all.pays;
