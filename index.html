@@ -3040,15 +3040,16 @@ async function loadSettings() {
     let changed = false;
 
     if (cats && Array.isArray(cats.expense) && cats.expense.length > 0) {
-      // 서버 목록을 정식 소스로 사용 (서버가 항상 최신 상태)
       const serverECATS = cats.expense.map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
       const serverICATS = (cats.income || []).map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
       // 아이콘 업데이트
       cats.expense.forEach(c => { if (c && c.icon) ICONS[c.name] = c.icon; });
       (cats.income||[]).forEach(c => { if (c && c.icon) ICONS[c.name] = c.icon; });
-      // 서버 목록으로 업데이트 (이미 addCat/delCat에서 서버 확인 후 저장됨)
-      ECATS = serverECATS;
-      ICATS = serverICATS;
+      // 서버·로컬 합집합 사용 (어느 쪽도 유실 없도록)
+      const mergedE = [...new Set([...serverECATS, ...ECATS])];
+      const mergedI = [...new Set([...serverICATS, ...ICATS])];
+      ECATS = mergedE;
+      ICATS = mergedI;
       _saveLocal('wo_ecats', ECATS);
       _saveLocal('wo_icats', ICATS);
       changed = true;
@@ -3120,37 +3121,27 @@ async function addCat(type) {
   const nm   = $(inId)?.value.trim();
   if (!nm) { toast('카테고리 이름을 입력하세요', 'err'); return; }
 
-  // 중복 확인 (클라이언트)
+  // 중복 확인
   const existing = type === 'e' ? ECATS : ICATS;
   if (existing.includes(nm)) { toast(`"${nm}"은 이미 있는 카테고리입니다`, 'err'); return; }
 
-  // 1. 낙관적 즉시 반영
-  if (type === 'e') { ECATS = [...ECATS, nm]; }
-  else              { ICATS = [...ICATS, nm]; }
+  // 1. 로컬 즉시 추가 + 영구 저장
+  if (type === 'e') { ECATS = [...ECATS, nm]; _saveLocal('wo_ecats', ECATS); }
+  else              { ICATS = [...ICATS, nm]; _saveLocal('wo_icats', ICATS); }
   $(inId).value = '';
   renderCatList();
   toast(`✅ "${nm}" 추가됐습니다!`);
 
+  // 2. 서버 저장 (백그라운드 — 실패해도 로컬은 유지)
   try {
-    // 2. 서버 저장
     await call({ action:'saveCategory', name:nm, type:type==='e'?'지출':'수입', member:S.me });
-
-    // 3. 서버에서 전체 목록 재조회 (정합성 보장)
-    delete MEM_CACHE['getCategories'];
-    const cats = await call({ action: 'getCategories' });
-    if (cats && Array.isArray(cats.expense) && cats.expense.length > 0) {
-      ECATS = cats.expense.map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
-      ICATS = (cats.income || []).map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
-      _saveLocal('wo_ecats', ECATS);
-      _saveLocal('wo_icats', ICATS);
-      renderCatList();
-    }
+    // ★ 서버 재조회 없음 — 서버 캐시가 구 목록을 반환해 덮어쓰는 문제 방지
   } catch(e) {
-    // 서버 실패 시 낙관적 추가 롤백
+    // 서버 실패 시 롤백
     if (type === 'e') { ECATS = ECATS.filter(c => c !== nm); _saveLocal('wo_ecats', ECATS); }
     else              { ICATS = ICATS.filter(c => c !== nm); _saveLocal('wo_icats', ICATS); }
     renderCatList();
-    toast(e.message, 'err');
+    toast('서버 저장 실패: ' + e.message, 'err');
   }
 }
 
@@ -3158,29 +3149,18 @@ async function delCat(name, type) {
   if (!confirm(`"${name}" 카테고리를 삭제할까요?
 구글 시트에서도 삭제됩니다.`)) return;
 
-  // 1. 낙관적 즉시 제거
+  // 1. 로컬 즉시 제거 + 영구 저장
   const backupE = [...ECATS], backupI = [...ICATS];
   if (type === 'e') { ECATS = ECATS.filter(c => c !== name); _saveLocal('wo_ecats', ECATS); }
   else              { ICATS = ICATS.filter(c => c !== name); _saveLocal('wo_icats', ICATS); }
   renderCatList();
   toast(`🗑️ "${name}" 삭제됐습니다`);
 
+  // 2. 서버 삭제 (백그라운드 — 실패 시 롤백)
   try {
-    // 2. 서버 삭제
     await call({ action:'deleteCategory', name, member:S.me });
-
-    // 3. 서버 목록 재조회
-    delete MEM_CACHE['getCategories'];
-    const cats = await call({ action: 'getCategories' });
-    if (cats && Array.isArray(cats.expense)) {
-      ECATS = cats.expense.map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
-      ICATS = (cats.income || []).map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
-      _saveLocal('wo_ecats', ECATS);
-      _saveLocal('wo_icats', ICATS);
-      renderCatList();
-    }
+    // ★ 서버 재조회 없음
   } catch(e) {
-    // 서버 실패 시 롤백
     ECATS = backupE; ICATS = backupI;
     _saveLocal('wo_ecats', ECATS); _saveLocal('wo_icats', ICATS);
     renderCatList();
