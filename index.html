@@ -1347,7 +1347,10 @@ const WRITE_ACTIONS = new Set([
   'addTransaction','updateTransaction','deleteTransaction',
   'addAsset','updateAsset','deleteAsset',
   'addGoal','updateGoal','addMember',
-  'saveSettings','saveCategory','deleteCategory',
+  'saveSettings',
+  // saveCategory/deleteCategory는 WRITE_ACTIONS 제외
+  // → call()의 자동 cacheInvalidate가 MEM_CACHE['getCategories']를 삭제하지 않도록
+  // → 대신 addCat/delCat에서 직접 관리
   'savePayMethod','deletePayMethod',
 ]);
 
@@ -1507,7 +1510,20 @@ const isActive = pg => !!$('pg-' + pg)?.classList.contains('on');
 // 구성원
 // ══════════════════════════════════════════════════════
 function initMems(list) {
-  S.members = (list && list.length) ? list : DMEM;
+  const raw = (list && list.length) ? list : DMEM;
+  // color/emoji 컬럼이 뒤바뀐 구 데이터 자동 정규화
+  S.members = raw.map(m => {
+    let color = m.color || '#94a3b8';
+    let emoji = m.emoji || '👤';
+    // color 자리에 이모지가 들어온 경우 → 교체
+    if (color && !String(color).startsWith('#')) {
+      const tmp = color; color = emoji; emoji = tmp;
+    }
+    // emoji 자리에 색상 코드가 들어온 경우 → 기본값
+    if (!emoji || String(emoji).startsWith('#')) emoji = '👤';
+    if (!color || !String(color).startsWith('#')) color = '#94a3b8';
+    return { ...m, color, emoji };
+  });
   if (!S.me || !S.members.find(m => m.name === S.me)) {
     S.me = S.members[0].name; localStorage.setItem(MK, S.me);
   }
@@ -3022,38 +3038,16 @@ async function loadSettings() {
   renderCatList();
   renderPayList();
 
-  // ── 4. 서버에서 항상 최신 카테고리/결제수단 로드 ─────────────
-  // (캐시와 무관하게 항상 서버 조회 — 표시 안 되는 문제 근본 해결)
+  // ── 4. 서버 동기화 (예산·결제수단만, 카테고리는 로컬 관리) ──
   if (!apiUrl) return;
   try {
-    // 캐시 강제 무효화 후 서버에서 새로 로드
-    delete MEM_CACHE['getCategories'];
-    delete MEM_CACHE['getPayMethods'];
-    delete MEM_CACHE['getBudgets'];
-
-    const [cats, pays, b] = await Promise.all([
-      call({ action: 'getCategories' }),
+    const [pays, b] = await Promise.all([
       call({ action: 'getPayMethods' }),
       call({ action: 'getBudgets' }),
     ]);
 
     let changed = false;
 
-    if (cats && Array.isArray(cats.expense) && cats.expense.length > 0) {
-      const serverECATS = cats.expense.map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
-      const serverICATS = (cats.income || []).map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
-      // 아이콘 업데이트
-      cats.expense.forEach(c => { if (c && c.icon) ICONS[c.name] = c.icon; });
-      (cats.income||[]).forEach(c => { if (c && c.icon) ICONS[c.name] = c.icon; });
-      // 서버·로컬 합집합 사용 (어느 쪽도 유실 없도록)
-      const mergedE = [...new Set([...serverECATS, ...ECATS])];
-      const mergedI = [...new Set([...serverICATS, ...ICATS])];
-      ECATS = mergedE;
-      ICATS = mergedI;
-      _saveLocal('wo_ecats', ECATS);
-      _saveLocal('wo_icats', ICATS);
-      changed = true;
-    }
     if (Array.isArray(pays) && pays.length > 0) {
       PAYS = pays.map(p => typeof p === 'string' ? p : (p.name || p)).filter(Boolean);
       _saveLocal('wo_pays', PAYS);
@@ -3064,14 +3058,12 @@ async function loadSettings() {
       changed = true;
     }
 
-    // 서버 데이터로 다시 렌더
     if (changed) {
       renderBudgetForm();
-      renderCatList();
       renderPayList();
+      // 카테고리는 로컬 데이터 유지 (서버 덮어쓰기 없음)
     }
   } catch(e) {
-    // 서버 오류 시 로컬 데이터라도 표시 (이미 위에서 렌더됨)
     console.warn('설정 서버 동기화 실패:', e.message);
   }
 }
@@ -3121,21 +3113,28 @@ async function addCat(type) {
   const nm   = $(inId)?.value.trim();
   if (!nm) { toast('카테고리 이름을 입력하세요', 'err'); return; }
 
-  // 중복 확인
   const existing = type === 'e' ? ECATS : ICATS;
   if (existing.includes(nm)) { toast(`"${nm}"은 이미 있는 카테고리입니다`, 'err'); return; }
 
-  // 1. 로컬 즉시 추가 + 영구 저장
+  // 로컬 즉시 추가 + localStorage 영구 저장
   if (type === 'e') { ECATS = [...ECATS, nm]; _saveLocal('wo_ecats', ECATS); }
   else              { ICATS = [...ICATS, nm]; _saveLocal('wo_icats', ICATS); }
   $(inId).value = '';
   renderCatList();
   toast(`✅ "${nm}" 추가됐습니다!`);
 
-  // 2. 서버 저장 (백그라운드 — 실패해도 로컬은 유지)
+  // 서버 저장 (fetch 직접 호출 — call()의 cacheInvalidate 우회)
+  const url = getApiUrl();
+  if (!url) return;
   try {
-    await call({ action:'saveCategory', name:nm, type:type==='e'?'지출':'수입', member:S.me });
-    // ★ 서버 재조회 없음 — 서버 캐시가 구 목록을 반환해 덮어쓰는 문제 방지
+    const qs = new URLSearchParams({
+      action: 'saveCategory', name: nm,
+      type: type === 'e' ? '지출' : '수입', member: S.me
+    }).toString();
+    const res = await fetch(url + '?' + qs, { method: 'GET', redirect: 'follow' });
+    const data = await res.json();
+    if (data && data.ok === false) throw new Error(data.error || '서버 오류');
+    // 성공 — 로컬은 이미 반영됨, ECATS 변경 없음
   } catch(e) {
     // 서버 실패 시 롤백
     if (type === 'e') { ECATS = ECATS.filter(c => c !== nm); _saveLocal('wo_ecats', ECATS); }
@@ -3149,17 +3148,21 @@ async function delCat(name, type) {
   if (!confirm(`"${name}" 카테고리를 삭제할까요?
 구글 시트에서도 삭제됩니다.`)) return;
 
-  // 1. 로컬 즉시 제거 + 영구 저장
+  // 로컬 즉시 제거 + localStorage 영구 저장
   const backupE = [...ECATS], backupI = [...ICATS];
   if (type === 'e') { ECATS = ECATS.filter(c => c !== name); _saveLocal('wo_ecats', ECATS); }
   else              { ICATS = ICATS.filter(c => c !== name); _saveLocal('wo_icats', ICATS); }
   renderCatList();
   toast(`🗑️ "${name}" 삭제됐습니다`);
 
-  // 2. 서버 삭제 (백그라운드 — 실패 시 롤백)
+  // 서버 삭제 (fetch 직접 호출 — call()의 cacheInvalidate 우회)
+  const url = getApiUrl();
+  if (!url) return;
   try {
-    await call({ action:'deleteCategory', name, member:S.me });
-    // ★ 서버 재조회 없음
+    const qs = new URLSearchParams({ action: 'deleteCategory', name, member: S.me }).toString();
+    const res = await fetch(url + '?' + qs, { method: 'GET', redirect: 'follow' });
+    const data = await res.json();
+    if (data && data.ok === false) throw new Error(data.error || '서버 오류');
   } catch(e) {
     ECATS = backupE; ICATS = backupI;
     _saveLocal('wo_ecats', ECATS); _saveLocal('wo_icats', ICATS);
