@@ -604,17 +604,25 @@ body{
 
   /* ── 모바일 모달 — 화면 중앙 배치 ── */
   .mod-bg{
-    padding:16px !important;
-    align-items:center !important;
+    padding:12px !important;
+    align-items:flex-start !important;
     justify-content:center !important;
+    padding-top:env(safe-area-inset-top, 12px) !important;
+    overflow-y:auto !important;
   }
   .mod{
     width:calc(100vw - 32px) !important;
     max-width:calc(100vw - 32px) !important;
-    max-height:calc(100dvh - 100px) !important;
+    max-height:calc(100dvh - 60px) !important;
     height:auto !important;
     border-radius:20px !important;
     margin:0 auto !important;
+  }
+  /* 모달 본문 스크롤 강화 */
+  #mod-txn .mod-body{
+    max-height:calc(100dvh - 220px) !important;
+    overflow-y:auto !important;
+    -webkit-overflow-scrolling:touch !important;
   }
   /* 핸들바 숨김 (중앙 팝업이라 불필요) */
   .mod-handle{ display:none !important; }
@@ -664,6 +672,29 @@ body{
     bottom:calc(68px + env(safe-area-inset-bottom) + 8px);
     right:12px;left:12px;
     text-align:center;
+  }
+
+  /* date input 모바일 최적화 */
+  input[type="date"].fi2{
+    -webkit-appearance: none;
+    appearance: none;
+    min-height:48px;
+    font-size:16px !important; /* iOS 줌 방지 */
+  }
+  /* select 모바일 최적화 — 터치 영역 확보 */
+  select.fs{
+    min-height:48px !important;
+    font-size:16px !important; /* iOS 줌 방지 */
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px !important;
+  }
+  /* 입력 필드 폰트 16px — iOS 자동 줌 방지 */
+  input.fi2{
+    font-size:16px !important;
   }
   .ab{
     top:12px;
@@ -1005,7 +1036,8 @@ body{
     <div class="mod-body">
       <div style="display:flex;flex-direction:column;gap:13px;">
         <input type="hidden" id="t-id">
-        <div class="fgr"><label class="fl">누가</label><select class="fs" id="t-who"></select></div>
+
+        <!-- 유형 (지출/수입) — 최상단 -->
         <div class="fgr">
           <label class="fl">유형</label>
           <div class="tt">
@@ -1014,11 +1046,26 @@ body{
           </div>
           <input type="hidden" id="t-type" value="지출">
         </div>
-        <div class="fgr"><label class="fl">날짜</label><input class="fi2" type="date" id="t-date"></div>
-        <div class="fgr"><label class="fl">금액(원)</label><input class="fi2" type="number" id="t-amt" placeholder="0" oninput="onAmtChange()"></div>
-        <div class="fgr"><label class="fl">카테고리</label><select class="fs" id="t-cat" onchange="onCatChange()"></select></div>
-        <div class="fgr"><label class="fl">결제수단</label><select class="fs" id="t-pay"></select></div>
+
+        <!-- 금액 — 두 번째 (가장 중요) -->
+        <div class="fgr"><label class="fl">금액(원)</label><input class="fi2" type="number" id="t-amt" placeholder="0" inputmode="numeric" oninput="onAmtChange()"></div>
+
+        <!-- 카테고리 — 세 번째 (유형에 따라 변경) -->
+        <div class="fgr"><label class="fl">카테고리</label><select class="fs" id="t-cat" onchange="onCatChange()" size="1" style="min-height:48px;"></select></div>
+
+        <!-- 결제수단 -->
+        <div class="fgr"><label class="fl">결제수단</label><select class="fs" id="t-pay" size="1" style="min-height:48px;"></select></div>
+
+        <!-- 내용/가맹점 -->
         <div class="fgr"><label class="fl">내용/가맹점</label><input class="fi2" id="t-desc" placeholder="예: 스타벅스 강남점"></div>
+
+        <!-- 날짜 — 기본값 오늘이라 아래로 -->
+        <div class="fgr"><label class="fl">날짜</label><input class="fi2" type="date" id="t-date" style="min-height:48px;"></div>
+
+        <!-- 누가 -->
+        <div class="fgr"><label class="fl">누가</label><select class="fs" id="t-who" size="1"></select></div>
+
+        <!-- 메모 -->
         <div class="fgr"><label class="fl">메모 (선택)</label><input class="fi2" id="t-memo" placeholder="선택사항"></div>
         <div class="asset-link" id="asset-link-box" style="display:none;">
           <div class="asset-link-title">🔗 자산 연동 — 지출 금액만큼 해당 자산 금액이 증가합니다</div>
