@@ -1348,10 +1348,8 @@ const WRITE_ACTIONS = new Set([
   'addAsset','updateAsset','deleteAsset',
   'addGoal','updateGoal','addMember',
   'saveSettings',
-  // saveCategory/deleteCategory는 WRITE_ACTIONS 제외
-  // → call()의 자동 cacheInvalidate가 MEM_CACHE['getCategories']를 삭제하지 않도록
-  // → 대신 addCat/delCat에서 직접 관리
-  'savePayMethod','deletePayMethod',
+  // saveCategory/deleteCategory/savePayMethod/deletePayMethod는 제외
+  // → fetch 직접 호출로 처리, call()의 cacheInvalidate 우회
 ]);
 
 async function fetchWithTimeout(fullUrl, timeoutMs) {
@@ -3049,7 +3047,9 @@ async function loadSettings() {
     let changed = false;
 
     if (Array.isArray(pays) && pays.length > 0) {
-      PAYS = pays.map(p => typeof p === 'string' ? p : (p.name || p)).filter(Boolean);
+      const serverPAYS = pays.map(p => typeof p === 'string' ? p : (p.name || p)).filter(Boolean);
+      // 서버+로컬 합집합 (어느 쪽도 유실 없도록)
+      PAYS = [...new Set([...serverPAYS, ...PAYS])];
       _saveLocal('wo_pays', PAYS);
       changed = true;
     }
@@ -3174,24 +3174,58 @@ async function delCat(name, type) {
 async function addPay() {
   const nm = $('pay-new')?.value.trim();
   if (!nm) { toast('결제수단 이름을 입력하세요', 'err'); return; }
+  if (PAYS.includes(nm)) { toast(`"${nm}"은 이미 있는 결제수단입니다`, 'err'); return; }
+
+  // 로컬 즉시 추가 + 영구 저장
+  PAYS = [...PAYS, nm];
+  _saveLocal('wo_pays', PAYS);
+  $('pay-new').value = '';
+  renderPayList();
+  toast(`✅ "${nm}" 추가됐습니다!`);
+
+  // 서버 저장 (fetch 직접 — call()의 cacheInvalidate 우회)
+  const url = getApiUrl();
+  if (!url) return;
   try {
-    await call({ action:'savePayMethod', name:nm, member:S.me });
-    PAYS.push(nm); _saveLocal('wo_pays', PAYS);
-    $('pay-new').value = '';
+    const qs = new URLSearchParams({ action:'savePayMethod', name:nm, member:S.me }).toString();
+    const res = await fetch(url + '?' + qs, { method:'GET', redirect:'follow' });
+    const data = await res.json();
+    if (data && data.ok === false) throw new Error(data.error || '서버 오류');
+  } catch(e) {
+    // 실패 시 롤백
+    PAYS = PAYS.filter(p => p !== nm);
+    _saveLocal('wo_pays', PAYS);
     renderPayList();
-    toast(`✅ "${nm}" 결제수단이 추가됐습니다!`);
-  } catch(e) { toast(e.message, 'err'); }
+    toast('서버 저장 실패: ' + e.message, 'err');
+  }
 }
 
 async function delPay(name) {
   if (!confirm(`"${name}" 결제수단을 삭제할까요?
 구글 시트에서도 삭제됩니다.`)) return;
+
+  // 로컬 즉시 제거 + 영구 저장
+  const backup = [...PAYS];
+  PAYS = PAYS.filter(p => p !== name);
+  _saveLocal('wo_pays', PAYS);
+  renderPayList();
+  toast(`🗑️ "${name}" 삭제됐습니다`);
+
+  // 서버 삭제 (fetch 직접 — call()의 cacheInvalidate 우회)
+  const url = getApiUrl();
+  if (!url) return;
   try {
-    await call({ action:'deletePayMethod', name, member:S.me });
-    PAYS = PAYS.filter(p => p !== name); _saveLocal('wo_pays', PAYS);
+    const qs = new URLSearchParams({ action:'deletePayMethod', name, member:S.me }).toString();
+    const res = await fetch(url + '?' + qs, { method:'GET', redirect:'follow' });
+    const data = await res.json();
+    if (data && data.ok === false) throw new Error(data.error || '서버 오류');
+  } catch(e) {
+    // 실패 시 롤백
+    PAYS = backup;
+    _saveLocal('wo_pays', PAYS);
     renderPayList();
-    toast(`🗑️ "${name}" 삭제됐습니다`);
-  } catch(e) { toast(e.message, 'err'); }
+    toast('삭제 실패 — ' + e.message, 'err');
+  }
 }
 
 async function saveApiUrl() {
