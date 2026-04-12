@@ -2271,8 +2271,7 @@ async function loadAssets() {
   if (assetCached && Array.isArray(assetCached.data)) {
     S.assets = assetCached.data;
   }
-  // ID 없는 항목 정제 (구 데이터 방어)
-  S.assets = S.assets.filter(a => a.id && !String(a.id).startsWith('tmp-') || S.assets.indexOf(a) >= 0);
+  // tmp- 항목은 서버 저장 완료 전 임시 항목으로 유지 (ID 없는 항목도 표시)
   if (S.assets.length > 0) {
     _renderAssetSummary();
     renderAssetList();
@@ -2285,10 +2284,13 @@ async function loadAssets() {
   // 2. 백그라운드 서버 동기화
   try {
     const d = await call({ action: 'getAssets' });
-    // 낙관적 업데이트로 추가된 tmp- 항목 보존, 서버 데이터로 나머지 교체
-    const tmpItems = S.assets.filter(a => String(a.id).startsWith('tmp-'));
-    const serverItems = (Array.isArray(d) ? d : []).filter(a => a.id);
-    S.assets = [...tmpItems, ...serverItems];
+    // 낙관적 tmp- 항목 보존 + 서버 데이터 병합
+    const tmpItems = S.assets.filter(a => a.id && String(a.id).startsWith('tmp-'));
+    const serverItems = Array.isArray(d) ? d : [];
+    // tmp- 항목 중 서버에 이미 반영된 것은 제외 (이름으로 중복 체크)
+    const serverNames = new Set(serverItems.map(a => a.name));
+    const validTmps = tmpItems.filter(a => !serverNames.has(a.name));
+    S.assets = [...validTmps, ...serverItems];
     MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
     _renderAssetSummary();
     renderAssetList();
@@ -4083,7 +4085,8 @@ function pickMeMob(name) {
         const cacheAge = assetCache ? Date.now() - assetCache.ts : Infinity;
         // 5초 이내 갱신된 캐시는 낙관적 업데이트 결과이므로 유지
         if (cacheAge > 5000) {
-          S.assets = all.assets.filter(a => a.id); // ID 없는 항목 제외
+          // ID 없는 항목도 표시 (Code.gs가 자동 UUID 부여)
+          S.assets = Array.isArray(all.assets) ? all.assets : [];
           MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
         }
       }
