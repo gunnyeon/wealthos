@@ -3660,29 +3660,39 @@ async function delTxn(id, desc, assetId, e) {
 // ══════════════════════════════════════════════════════
 function openAsset() {
   ['a-nm','a-inst','a-val','a-cost','a-memo'].forEach(id => { const el=$(id); if(el) el.value=''; });
-  const idEl = $('a-id'); if(idEl) idEl.value = '';
+  const idEl = $('a-id'); if(idEl) idEl.value = ''; // ← 반드시 비우기
   const delBtn = $('a-del-btn'); if(delBtn) delBtn.style.display = 'none';
   const mot = $('mod-asset')?.querySelector('.mot'); if(mot) mot.textContent = '🏦 자산 추가';
+  const saveBtn = document.querySelector('#mod-asset .btn.bp');
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '저장'; }
   openM('mod-asset');
-  // 첫 입력 필드 포커스
   setTimeout(() => { const el=$('a-nm'); if(el) el.focus(); }, 120);
 }
 
 function openEditAsset(id, name, type, inst, val, cost, memo) {
-  const set = (elId, v) => { const el=$(elId); if(el) el.value = (v??''); };
-  set('a-id', id); set('a-nm', name); set('a-inst', inst);
-  set('a-val', val); set('a-cost', cost); set('a-memo', memo);
+  if (!id) { toast('자산 정보를 불러올 수 없습니다', 'err'); return; }
+  const set = (elId, v) => { const el=$(elId); if(el) el.value = String(v ?? ''); };
+  set('a-id',   id);
+  set('a-nm',   name);
+  set('a-inst', inst);
+  set('a-val',  val);
+  set('a-cost', cost || val); // 취득금액 없으면 현재금액으로
+  set('a-memo', memo);
   const typeEl = $('a-type');
   if (typeEl) typeEl.value = type || '예금/현금';
-  const delBtn = $('a-del-btn'); if(delBtn) delBtn.style.display = 'inline-flex';
-  const mot = $('mod-asset')?.querySelector('.mot'); if(mot) mot.textContent = '🏦 자산 수정';
+  const delBtn = $('a-del-btn');
+  if (delBtn) { delBtn.style.display = 'inline-flex'; delBtn.disabled = false; }
+  const mot = $('mod-asset')?.querySelector('.mot');
+  if (mot) mot.textContent = '🏦 자산 수정';
+  const saveBtn = document.querySelector('#mod-asset .btn.bp');
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '저장'; }
   openM('mod-asset');
 }
 
 function deleteAssetFromModal() {
-  const id   = gv('a-id');
-  const name = gv('a-nm');
-  if (!id) return;
+  const id   = ($('a-id')?.value || '').trim();
+  const name = ($('a-nm')?.value || '').trim();
+  if (!id || id.startsWith('tmp-')) { toast('저장되지 않은 항목입니다', 'err'); return; }
   if (!confirm(`"${name}" 자산을 삭제할까요?
 이 작업은 되돌릴 수 없습니다.`)) return;
 
@@ -3719,62 +3729,85 @@ function _renderAssetSummary() {
 }
 
 async function submitAsset() {
-  const id = gv('a-id');
-  const p  = {
-    name:          gv('a-nm'),
-    type:          gv('a-type'),
-    institution:   gv('a-inst'),
-    currentValue:  gv('a-val'),
-    purchaseValue: gv('a-cost'),
-    memo:          gv('a-memo'),
+  // 중복 클릭 방지
+  const btn = document.querySelector('#mod-asset .btn.bp');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+  const restoreBtn = () => { if (btn) { btn.disabled = false; btn.textContent = '저장'; } };
+
+  // ── 입력값 수집 ──────────────────────────────────────────
+  const rawId = ($('a-id')?.value || '').trim(); // 수정 시 UUID, 추가 시 ''
+  const isEdit = rawId.length > 0 && !rawId.startsWith('tmp-');
+
+  const p = {
+    name:          ($('a-nm')?.value   || '').trim(),
+    type:          ($('a-type')?.value || '기타').trim(),
+    institution:   ($('a-inst')?.value || '').trim(),
+    currentValue:  Number($('a-val')?.value  || 0),
+    purchaseValue: Number($('a-cost')?.value || 0),
+    memo:          ($('a-memo')?.value || '').trim(),
     member:        S.me,
   };
-  if (!p.name || !p.currentValue) { toast('자산명과 금액을 입력하세요', 'err'); return; }
+  if (!p.name)           { toast('자산명을 입력하세요', 'err');  restoreBtn(); return; }
+  if (!p.currentValue)   { toast('현재 금액을 입력하세요', 'err'); restoreBtn(); return; }
+  if (!p.purchaseValue) p.purchaseValue = p.currentValue;
 
-  const newAsset = {
-    id: id || 'tmp-' + Date.now(),
-    name: p.name, type: p.type, institution: p.institution,
-    currentValue: Number(p.currentValue),
-    purchaseValue: Number(p.purchaseValue || p.currentValue),
-    memo: p.memo,
-  };
-
-  // ── 낙관적 즉시 반영 ──────────────────────────────────────
+  // ── 낙관적 즉시 반영 ─────────────────────────────────────
   const backup = [...S.assets];
-  if (id) {
-    S.assets = S.assets.map(a => a.id === id ? { ...a, ...newAsset, id } : a);
+  const tmpId  = 'tmp-' + Date.now();
+
+  if (isEdit) {
+    // 수정: 기존 항목 덮어쓰기
+    S.assets = S.assets.map(a => a.id === rawId
+      ? { ...a, name:p.name, type:p.type, institution:p.institution,
+          currentValue:p.currentValue, purchaseValue:p.purchaseValue, memo:p.memo }
+      : a
+    );
   } else {
-    S.assets = [newAsset, ...S.assets]; // 추가: 맨 앞에 삽입
+    // 신규: 맨 앞에 추가 (tmp ID 사용)
+    S.assets = [
+      { id:tmpId, name:p.name, type:p.type, institution:p.institution,
+        currentValue:p.currentValue, purchaseValue:p.purchaseValue, memo:p.memo },
+      ...S.assets
+    ];
   }
-  // 캐시 갱신
+
   MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
   closeM('mod-asset');
   toast('✅ 저장됐습니다!');
   _renderAssetSummary();
   renderAssetList();
 
-  // ── 서버 저장 (백그라운드) ────────────────────────────────
+  // ── 서버 저장 (백그라운드) ───────────────────────────────
   try {
-    const res = await call({ action: id ? 'updateAsset' : 'addAsset', id, ...p });
-    // 신규: tmp- ID를 서버 실제 ID로 교체
-    if (!id && res && res.id) {
-      S.assets = S.assets.map(a => a.id === newAsset.id ? { ...a, id: res.id } : a);
-      MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
-      renderAssetList();
+    if (isEdit) {
+      // UPDATE — ID 반드시 포함
+      await call({ action: 'updateAsset', id: rawId, ...p });
+    } else {
+      // CREATE — 서버에서 실제 UUID 발급
+      const res = await call({ action: 'addAsset', ...p });
+      if (res && res.id) {
+        // tmp- → 실제 ID 교체
+        S.assets = S.assets.map(a => a.id === tmpId ? { ...a, id: res.id } : a);
+        MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+        renderAssetList();
+      }
     }
     setTimeout(loadDash, 1000);
   } catch(e) {
-    toast('서버 저장 실패: ' + e.message, 'err');
-    // 롤백
+    toast('저장 실패: ' + e.message, 'err');
     S.assets = backup;
     MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
     _renderAssetSummary();
     renderAssetList();
+  } finally {
+    restoreBtn();
   }
 }
 
 async function deleteAsset(id, name, e) {
-  e.stopPropagation();
+  if (e) e.stopPropagation();
+  if (!id || id.startsWith('tmp-')) { toast('저장되지 않은 항목입니다', 'err'); return; }
   if (!confirm(`"${name}" 자산을 삭제할까요?`)) return;
 
   // 낙관적 즉시 제거
