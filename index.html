@@ -2266,40 +2266,32 @@ function refreshCalDay(dateStr) {
 // 자산
 // ══════════════════════════════════════════════════════
 async function loadAssets() {
-  // 캐시된 데이터 즉시 표시
+  // 1. S.assets 또는 캐시로 즉시 렌더
   const assetCached = MEM_CACHE['getAssets'];
-  if (assetCached && Date.now() - assetCached.ts < CACHE_MS.getAssets) {
+  if (assetCached && Array.isArray(assetCached.data)) {
     S.assets = assetCached.data;
   }
   if (S.assets.length > 0) {
-    const tot=S.assets.reduce((s,a)=>s+a.currentValue,0);
-    const cost=S.assets.reduce((s,a)=>s+(a.purchaseValue||a.currentValue),0);
-    const prf=tot-cost;
-    $('a-tot').textContent=fmt(tot);
-    $('a-prf').textContent=(prf>=0?'+':'')+fmt(prf);
-    $('a-prf').className='mv '+(prf>=0?'g':'r');
-    $('a-rt').textContent=cost>0?((prf/cost)*100).toFixed(1)+'%':'—';
-    renderAssetList(); // 즉시 렌더
-    // 캐시 유효하면 서버 재요청 안 함
+    _renderAssetSummary();
+    renderAssetList();
+    // 캐시 유효(5분)하면 서버 재요청 없음
     if (assetCached && Date.now() - assetCached.ts < CACHE_MS.getAssets) return;
-  } else if (!$('asset-list').children.length) {
-    $('asset-list').innerHTML = '<div class="empty">로딩 중...</div>';
+  } else {
+    const el = $('asset-list');
+    if (el && !el.children.length) el.innerHTML = '<div class="empty">로딩 중...</div>';
   }
+
+  // 2. 백그라운드 서버 동기화
   try {
     const d = await call({ action: 'getAssets' });
     S.assets = Array.isArray(d) ? d : [];
-
-    const tot  = S.assets.reduce((s, a) => s + a.currentValue, 0);
-    const cost = S.assets.reduce((s, a) => s + (a.purchaseValue || a.currentValue), 0);
-    const prf  = tot - cost;
-    $('a-tot').textContent = fmt(tot);
-    $('a-prf').textContent = (prf >= 0 ? '+' : '') + fmt(prf);
-    $('a-prf').className   = 'mv ' + (prf >= 0 ? 'g' : 'r');
-    $('a-rt').textContent  = cost > 0 ? ((prf / cost) * 100).toFixed(1) + '%' : '—';
-
+    MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+    _renderAssetSummary();
     renderAssetList();
   } catch(e) {
-    $('asset-list').innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
+    const el = $('asset-list');
+    if (el && !el.children.length)
+      el.innerHTML = `<div class="empty"><div class="ei">⚠️</div>${e.message}</div>`;
   }
 }
 
@@ -3654,56 +3646,116 @@ function deleteAssetFromModal() {
   if (!id) return;
   if (!confirm(`"${name}" 자산을 삭제할까요?
 이 작업은 되돌릴 수 없습니다.`)) return;
+
+  // 낙관적 즉시 제거
+  const backup = [...S.assets];
+  S.assets = S.assets.filter(a => a.id !== id);
+  MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
   closeM('mod-asset');
-  toast('🗑️ 삭제 중...');
+  toast('🗑️ 삭제됐습니다');
+  _renderAssetSummary();
+  renderAssetList();
+
+  // 서버 삭제 (백그라운드)
   call({ action: 'deleteAsset', id, member: S.me })
-    .then(() => {
-      toast('🗑️ 자산이 삭제됐습니다');
-      S.assets = S.assets.filter(a => a.id !== id);
-      loadAssets();
-      setTimeout(loadDash, 500);
-    })
-    .catch(e => toast('삭제 실패: ' + e.message, 'err'));
+    .then(() => { setTimeout(loadDash, 1000); })
+    .catch(e => {
+      toast('삭제 실패: ' + e.message, 'err');
+      // 롤백
+      S.assets = backup;
+      MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+      _renderAssetSummary();
+      renderAssetList();
+    });
+}
+
+// 자산 합계 즉시 렌더 헬퍼
+function _renderAssetSummary() {
+  const tot  = S.assets.reduce((s,a) => s + a.currentValue, 0);
+  const cost = S.assets.reduce((s,a) => s + (a.purchaseValue || a.currentValue), 0);
+  const prf  = tot - cost;
+  const totEl = $('a-tot'); if (totEl) totEl.textContent = fmt(tot);
+  const prfEl = $('a-prf'); if (prfEl) { prfEl.textContent = (prf>=0?'+':'')+fmt(prf); prfEl.className='mv '+(prf>=0?'g':'r'); }
+  const rtEl  = $('a-rt');  if (rtEl)  rtEl.textContent  = cost>0?((prf/cost)*100).toFixed(1)+'%':'—';
 }
 
 async function submitAsset() {
   const id = gv('a-id');
   const p  = {
-    name:         gv('a-nm'),
-    type:         gv('a-type'),
-    institution:  gv('a-inst'),
-    currentValue: gv('a-val'),
-    purchaseValue:gv('a-cost'),
-    memo:         gv('a-memo'),
-    member:       S.me,
+    name:          gv('a-nm'),
+    type:          gv('a-type'),
+    institution:   gv('a-inst'),
+    currentValue:  gv('a-val'),
+    purchaseValue: gv('a-cost'),
+    memo:          gv('a-memo'),
+    member:        S.me,
   };
   if (!p.name || !p.currentValue) { toast('자산명과 금액을 입력하세요', 'err'); return; }
 
-  // S.assets 즉시 업데이트
-  if (id) {
-    S.assets = S.assets.map(a => a.id === id ? {
-      ...a, name:p.name, type:p.type, institution:p.institution,
-      currentValue:Number(p.currentValue), purchaseValue:Number(p.purchaseValue||p.currentValue),
-      memo:p.memo
-    } : a);
-  }
-  closeM('mod-asset'); toast('✅ 저장됐습니다!');
+  const newAsset = {
+    id: id || 'tmp-' + Date.now(),
+    name: p.name, type: p.type, institution: p.institution,
+    currentValue: Number(p.currentValue),
+    purchaseValue: Number(p.purchaseValue || p.currentValue),
+    memo: p.memo,
+  };
 
-  call({ action: id ? 'updateAsset' : 'addAsset', id, ...p })
-    .then(() => { loadAssets(); setTimeout(loadDash, 500); })
-    .catch(e => { toast('서버 저장 실패: ' + e.message, 'err'); loadAssets(); });
+  // ── 낙관적 즉시 반영 ──────────────────────────────────────
+  const backup = [...S.assets];
+  if (id) {
+    S.assets = S.assets.map(a => a.id === id ? { ...a, ...newAsset, id } : a);
+  } else {
+    S.assets = [newAsset, ...S.assets]; // 추가: 맨 앞에 삽입
+  }
+  // 캐시 갱신
+  MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+  closeM('mod-asset');
+  toast('✅ 저장됐습니다!');
+  _renderAssetSummary();
+  renderAssetList();
+
+  // ── 서버 저장 (백그라운드) ────────────────────────────────
+  try {
+    const res = await call({ action: id ? 'updateAsset' : 'addAsset', id, ...p });
+    // 신규: tmp- ID를 서버 실제 ID로 교체
+    if (!id && res && res.id) {
+      S.assets = S.assets.map(a => a.id === newAsset.id ? { ...a, id: res.id } : a);
+      MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+      renderAssetList();
+    }
+    setTimeout(loadDash, 1000);
+  } catch(e) {
+    toast('서버 저장 실패: ' + e.message, 'err');
+    // 롤백
+    S.assets = backup;
+    MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+    _renderAssetSummary();
+    renderAssetList();
+  }
 }
 
 async function deleteAsset(id, name, e) {
   e.stopPropagation();
   if (!confirm(`"${name}" 자산을 삭제할까요?`)) return;
+
+  // 낙관적 즉시 제거
+  const backup = [...S.assets];
+  S.assets = S.assets.filter(a => a.id !== id);
+  MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+  toast('🗑️ 삭제됐습니다');
+  _renderAssetSummary();
+  renderAssetList();
+
   try {
     await call({ action: 'deleteAsset', id, member: S.me });
-    toast('🗑️ 자산이 삭제됐습니다');
-    S.assets = S.assets.filter(a => a.id !== id);
-    loadAssets();
-    setTimeout(loadDash, 500);
-  } catch(e) { toast(e.message, 'err'); }
+    setTimeout(loadDash, 1000);
+  } catch(e) {
+    toast('삭제 실패: ' + e.message, 'err');
+    S.assets = backup;
+    MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+    _renderAssetSummary();
+    renderAssetList();
+  }
 }
 
 // ══════════════════════════════════════════════════════
