@@ -2313,9 +2313,16 @@ function renderAssetList() {
   const byType = {};
   S.assets.forEach(a => { (byType[a.type] = byType[a.type] || []).push(a); });
   if (!S._assetOpen) S._assetOpen = {};
-  if (Object.keys(S._assetOpen).length === 0) {
+  // 처음 로드 시 첫 그룹 자동 열기 (이후에는 사용자 상태 유지)
+  const hasOpenState = Object.keys(S._assetOpen).length > 0;
+  if (!hasOpenState) {
     const first = Object.keys(byType)[0];
     if (first) S._assetOpen[first] = true;
+  } else {
+    // 새 타입이 추가됐으면 기본 닫힘
+    Object.keys(byType).forEach(t => {
+      if (!(t in S._assetOpen)) S._assetOpen[t] = false;
+    });
   }
   el.innerHTML = '';
   Object.entries(byType).forEach(function([type, items]) {
@@ -2354,19 +2361,46 @@ function renderAssetList() {
         ? ((a.currentValue - a.purchaseValue) / a.purchaseValue * 100).toFixed(1) : null;
       const row = document.createElement('div');
       row.className = 'ti';
-      row.style.cssText = 'border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0;cursor:pointer;';
-      row.addEventListener('click', function(){
-        openEditAsset(a.id, a.name, a.type, a.institution||'', a.currentValue, a.purchaseValue, a.memo||'');
-      });
+      row.style.cssText = 'border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0;cursor:pointer;user-select:none;';
+
+      // 왼쪽: 이름/기관
+      const tif = document.createElement('div');
+      tif.className = 'tif';
+      const tin = document.createElement('div');
+      tin.className = 'tin';
+      tin.textContent = a.name;
+      const tic = document.createElement('div');
+      tic.className = 'tic2';
+      tic.textContent = (a.institution||'-') + (a.memo?' · '+a.memo:'');
+      tif.appendChild(tin);
+      tif.appendChild(tic);
+
+      // 오른쪽: 금액/수익률
       const pctColor = pct !== null ? (Number(pct) >= 0 ? 'var(--green)' : 'var(--red)') : '';
-      row.innerHTML = '<div class="tif">'
-        + '<div class="tin">' + a.name + '</div>'
-        + '<div class="tic2">' + (a.institution||'-') + (a.memo?' · '+a.memo:'') + '</div>'
-        + '</div>'
-        + '<div style="text-align:right;flex-shrink:0;">'
-        + '<div style="font-weight:700;font-size:14px">' + fmt(a.currentValue) + '원</div>'
-        + (pct !== null ? '<div style="font-size:11px;color:' + pctColor + '">' + (Number(pct)>=0?'+':'') + pct + '%</div>' : '')
-        + '</div>';
+      const right = document.createElement('div');
+      right.style.cssText = 'text-align:right;flex-shrink:0;';
+      const valDiv = document.createElement('div');
+      valDiv.style.cssText = 'font-weight:700;font-size:14px;';
+      valDiv.textContent = fmt(a.currentValue) + '원';
+      right.appendChild(valDiv);
+      if (pct !== null) {
+        const pctDiv = document.createElement('div');
+        pctDiv.style.cssText = 'font-size:11px;color:' + pctColor + ';';
+        pctDiv.textContent = (Number(pct)>=0?'+':'') + pct + '%';
+        right.appendChild(pctDiv);
+      }
+
+      row.appendChild(tif);
+      row.appendChild(right);
+
+      // 클릭 이벤트 — innerHTML 교체 없으므로 리스너 유지됨
+      const assetId = a.id, assetName = a.name, assetType = a.type;
+      const assetInst = a.institution||'', assetVal = a.currentValue;
+      const assetCost = a.purchaseValue, assetMemo = a.memo||'';
+      row.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        openEditAsset(assetId, assetName, assetType, assetInst, assetVal, assetCost, assetMemo);
+      });
       body.appendChild(row);
     });
     group.appendChild(body);
@@ -3625,18 +3659,23 @@ async function delTxn(id, desc, assetId, e) {
 // 모달: 자산
 // ══════════════════════════════════════════════════════
 function openAsset() {
-  ['a-nm','a-inst','a-val','a-cost','a-memo'].forEach(id => $(id).value = '');
-  $('a-id').value = '';
-  $('a-del-btn').style.display = 'none'; // 추가 시 삭제 버튼 숨김
-  $('mod-asset').querySelector('.mot').textContent = '🏦 자산 추가';
+  ['a-nm','a-inst','a-val','a-cost','a-memo'].forEach(id => { const el=$(id); if(el) el.value=''; });
+  const idEl = $('a-id'); if(idEl) idEl.value = '';
+  const delBtn = $('a-del-btn'); if(delBtn) delBtn.style.display = 'none';
+  const mot = $('mod-asset')?.querySelector('.mot'); if(mot) mot.textContent = '🏦 자산 추가';
   openM('mod-asset');
+  // 첫 입력 필드 포커스
+  setTimeout(() => { const el=$('a-nm'); if(el) el.focus(); }, 120);
 }
 
 function openEditAsset(id, name, type, inst, val, cost, memo) {
-  $('a-id').value=id; $('a-nm').value=name; $('a-type').value=type;
-  $('a-inst').value=inst; $('a-val').value=val; $('a-cost').value=cost; $('a-memo').value=memo;
-  $('a-del-btn').style.display = 'inline-flex'; // 수정 시 삭제 버튼 표시
-  $('mod-asset').querySelector('.mot').textContent = '🏦 자산 수정';
+  const set = (elId, v) => { const el=$(elId); if(el) el.value = (v??''); };
+  set('a-id', id); set('a-nm', name); set('a-inst', inst);
+  set('a-val', val); set('a-cost', cost); set('a-memo', memo);
+  const typeEl = $('a-type');
+  if (typeEl) typeEl.value = type || '예금/현금';
+  const delBtn = $('a-del-btn'); if(delBtn) delBtn.style.display = 'inline-flex';
+  const mot = $('mod-asset')?.querySelector('.mot'); if(mot) mot.textContent = '🏦 자산 수정';
   openM('mod-asset');
 }
 
