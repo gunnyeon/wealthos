@@ -2266,15 +2266,16 @@ function refreshCalDay(dateStr) {
 // 자산
 // ══════════════════════════════════════════════════════
 async function loadAssets() {
-  // 1. S.assets 또는 캐시로 즉시 렌더
+  // 1. 캐시 또는 S.assets로 즉시 렌더
   const assetCached = MEM_CACHE['getAssets'];
   if (assetCached && Array.isArray(assetCached.data)) {
     S.assets = assetCached.data;
   }
+  // ID 없는 항목 정제 (구 데이터 방어)
+  S.assets = S.assets.filter(a => a.id && !String(a.id).startsWith('tmp-') || S.assets.indexOf(a) >= 0);
   if (S.assets.length > 0) {
     _renderAssetSummary();
     renderAssetList();
-    // 캐시 유효(5분)하면 서버 재요청 없음
     if (assetCached && Date.now() - assetCached.ts < CACHE_MS.getAssets) return;
   } else {
     const el = $('asset-list');
@@ -2284,7 +2285,10 @@ async function loadAssets() {
   // 2. 백그라운드 서버 동기화
   try {
     const d = await call({ action: 'getAssets' });
-    S.assets = Array.isArray(d) ? d : [];
+    // 낙관적 업데이트로 추가된 tmp- 항목 보존, 서버 데이터로 나머지 교체
+    const tmpItems = S.assets.filter(a => String(a.id).startsWith('tmp-'));
+    const serverItems = (Array.isArray(d) ? d : []).filter(a => a.id);
+    S.assets = [...tmpItems, ...serverItems];
     MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
     _renderAssetSummary();
     renderAssetList();
@@ -2393,14 +2397,21 @@ function renderAssetList() {
       row.appendChild(tif);
       row.appendChild(right);
 
-      // 클릭 이벤트 — innerHTML 교체 없으므로 리스너 유지됨
-      const assetId = a.id, assetName = a.name, assetType = a.type;
-      const assetInst = a.institution||'', assetVal = a.currentValue;
-      const assetCost = a.purchaseValue, assetMemo = a.memo||'';
-      row.addEventListener('click', function(ev){
-        ev.stopPropagation();
-        openEditAsset(assetId, assetName, assetType, assetInst, assetVal, assetCost, assetMemo);
-      });
+      // 클릭 이벤트 — ID 없거나 tmp- 항목은 클릭 비활성화
+      const assetId = String(a.id || '');
+      if (!assetId || assetId.startsWith('tmp-')) {
+        row.style.opacity = '0.5';
+        row.style.cursor = 'default';
+        row.title = '저장 중...';
+      } else {
+        const assetName = a.name, assetType = a.type;
+        const assetInst = a.institution||'', assetVal = a.currentValue;
+        const assetCost = a.purchaseValue, assetMemo = a.memo||'';
+        row.addEventListener('click', function(ev){
+          ev.stopPropagation();
+          openEditAsset(assetId, assetName, assetType, assetInst, assetVal, assetCost, assetMemo);
+        });
+      }
       body.appendChild(row);
     });
     group.appendChild(body);
@@ -3707,10 +3718,12 @@ function deleteAssetFromModal() {
 
   // 서버 삭제 (백그라운드)
   call({ action: 'deleteAsset', id, member: S.me })
-    .then(() => { setTimeout(loadDash, 1000); })
+    .then(() => {
+      // getAll/dashboard 캐시 무효화 (다음 탭 전환 시 최신 조회)
+      delete MEM_CACHE['getDashboard'];
+    })
     .catch(e => {
       toast('삭제 실패: ' + e.message, 'err');
-      // 롤백
       S.assets = backup;
       MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
       _renderAssetSummary();
@@ -3793,7 +3806,8 @@ async function submitAsset() {
         renderAssetList();
       }
     }
-    setTimeout(loadDash, 1000);
+    // getAll 캐시 무효화 (다음 loadDash 시 최신 자산 조회)
+    delete MEM_CACHE['getDashboard'];
   } catch(e) {
     toast('저장 실패: ' + e.message, 'err');
     S.assets = backup;
@@ -3820,7 +3834,7 @@ async function deleteAsset(id, name, e) {
 
   try {
     await call({ action: 'deleteAsset', id, member: S.me });
-    setTimeout(loadDash, 1000);
+    delete MEM_CACHE['getDashboard'];
   } catch(e) {
     toast('삭제 실패: ' + e.message, 'err');
     S.assets = backup;
@@ -4063,10 +4077,15 @@ function pickMeMob(name) {
         S.ledger = all.ledger;
         MEM_CACHE['getLedger_' + thisYM] = { ts: Date.now(), data: all.ledger };
       }
-      // 자산
+      // 자산 — MEM_CACHE가 최신이면 덮어쓰지 않음 (낙관적 UI 보호)
       if (all.assets) {
-        S.assets = all.assets;
-        MEM_CACHE['getAssets'] = { ts: Date.now(), data: all.assets };
+        const assetCache = MEM_CACHE['getAssets'];
+        const cacheAge = assetCache ? Date.now() - assetCache.ts : Infinity;
+        // 5초 이내 갱신된 캐시는 낙관적 업데이트 결과이므로 유지
+        if (cacheAge > 5000) {
+          S.assets = all.assets.filter(a => a.id); // ID 없는 항목 제외
+          MEM_CACHE['getAssets'] = { ts: Date.now(), data: [...S.assets] };
+        }
       }
       // 목표
       if (all.goals) {
