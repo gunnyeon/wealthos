@@ -2399,16 +2399,18 @@ function renderAssetList() {
       row.appendChild(tif);
       row.appendChild(right);
 
-      // 클릭 이벤트 — ID 없거나 tmp- 항목은 클릭 비활성화
-      const assetId = String(a.id || '');
-      if (!assetId || assetId.startsWith('tmp-')) {
-        row.style.opacity = '0.5';
+      // 클릭 이벤트 — 항상 활성화 (ID 없어도 편집 가능)
+      const assetId   = String(a.id || '');
+      const assetName = a.name, assetType = a.type;
+      const assetInst = a.institution||'', assetVal = a.currentValue;
+      const assetCost = a.purchaseValue, assetMemo = a.memo||'';
+      if (assetId.startsWith('tmp-')) {
+        // 서버 저장 중인 항목
+        row.style.opacity = '0.6';
         row.style.cursor = 'default';
         row.title = '저장 중...';
       } else {
-        const assetName = a.name, assetType = a.type;
-        const assetInst = a.institution||'', assetVal = a.currentValue;
-        const assetCost = a.purchaseValue, assetMemo = a.memo||'';
+        row.style.cursor = 'pointer';
         row.addEventListener('click', function(ev){
           ev.stopPropagation();
           openEditAsset(assetId, assetName, assetType, assetInst, assetVal, assetCost, assetMemo);
@@ -3683,20 +3685,24 @@ function openAsset() {
 }
 
 function openEditAsset(id, name, type, inst, val, cost, memo) {
-  if (!id) { toast('자산 정보를 불러올 수 없습니다', 'err'); return; }
+  // ID가 없어도 편집 모달 열기 (저장 시 서버에서 처리)
   const set = (elId, v) => { const el=$(elId); if(el) el.value = String(v ?? ''); };
-  set('a-id',   id);
+  set('a-id',   id || '');   // ID 없으면 빈 문자열 → submitAsset이 addAsset으로 처리
   set('a-nm',   name);
   set('a-inst', inst);
   set('a-val',  val);
-  set('a-cost', cost || val); // 취득금액 없으면 현재금액으로
+  set('a-cost', cost || val);
   set('a-memo', memo);
   const typeEl = $('a-type');
   if (typeEl) typeEl.value = type || '예금/현금';
   const delBtn = $('a-del-btn');
-  if (delBtn) { delBtn.style.display = 'inline-flex'; delBtn.disabled = false; }
+  if (delBtn) {
+    // ID 있으면 삭제 버튼 표시, 없으면 숨김 (ID 없으면 서버에서 식별 불가)
+    delBtn.style.display = id ? 'inline-flex' : 'none';
+    delBtn.disabled = false;
+  }
   const mot = $('mod-asset')?.querySelector('.mot');
-  if (mot) mot.textContent = '🏦 자산 수정';
+  if (mot) mot.textContent = id ? '🏦 자산 수정' : '🏦 자산 정보 입력';
   const saveBtn = document.querySelector('#mod-asset .btn.bp');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '저장'; }
   openM('mod-asset');
@@ -3752,7 +3758,11 @@ async function submitAsset() {
 
   // ── 입력값 수집 ──────────────────────────────────────────
   const rawId = ($('a-id')?.value || '').trim(); // 수정 시 UUID, 추가 시 ''
-  const isEdit = rawId.length > 0 && !rawId.startsWith('tmp-');
+  const assetName_ = ($('a-nm')?.value || '').trim();
+  // ID가 있으면 수정, 없으면 같은 이름의 기존 항목이 S.assets에 있으면 수정
+  const existingByName = !rawId ? S.assets.find(a => a.name === assetName_ && a.id && !String(a.id).startsWith('tmp-')) : null;
+  const effectiveId = rawId || (existingByName ? existingByName.id : '');
+  const isEdit = effectiveId.length > 0 && !effectiveId.startsWith('tmp-');
 
   const p = {
     name:          ($('a-nm')?.value   || '').trim(),
@@ -3773,7 +3783,7 @@ async function submitAsset() {
 
   if (isEdit) {
     // 수정: 기존 항목 덮어쓰기
-    S.assets = S.assets.map(a => a.id === rawId
+    S.assets = S.assets.map(a => a.id === effectiveId
       ? { ...a, name:p.name, type:p.type, institution:p.institution,
           currentValue:p.currentValue, purchaseValue:p.purchaseValue, memo:p.memo }
       : a
@@ -3796,8 +3806,8 @@ async function submitAsset() {
   // ── 서버 저장 (백그라운드) ───────────────────────────────
   try {
     if (isEdit) {
-      // UPDATE — ID 반드시 포함
-      await call({ action: 'updateAsset', id: rawId, ...p });
+      // UPDATE — effectiveId 사용 (rawId 또는 이름으로 찾은 ID)
+      await call({ action: 'updateAsset', id: effectiveId, ...p });
     } else {
       // CREATE — 서버에서 실제 UUID 발급
       const res = await call({ action: 'addAsset', ...p });
